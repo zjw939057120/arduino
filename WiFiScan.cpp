@@ -2,79 +2,93 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
-void setupEntry() {
-  Serial.begin(115200);
-  // Enable Station Interface
-  WiFi.STA.begin();
-  Serial.println("Setup done");
+#define SERIAL_BUFFER_SIZE 64
+
+char serialBuffer[SERIAL_BUFFER_SIZE];
+int bufferIndex = 0;
+
+int getEcnValue(wifi_auth_mode_t encryptionType) {
+  switch (encryptionType) {
+    case WIFI_AUTH_OPEN:            return 0;
+    case WIFI_AUTH_WEP:             return 1;
+    case WIFI_AUTH_WPA_PSK:         return 2;
+    case WIFI_AUTH_WPA2_PSK:        return 3;
+    case WIFI_AUTH_WPA_WPA2_PSK:    return 4;
+    case WIFI_AUTH_WPA2_ENTERPRISE: return 5;
+    case WIFI_AUTH_WPA3_PSK:        return 6;
+    case WIFI_AUTH_WPA2_WPA3_PSK:   return 7;
+    case WIFI_AUTH_WAPI_PSK:        return 8;
+    default:                        return 0;
+  }
+}
+
+void formatMacAddress(uint8_t* mac, char* output) {
+  sprintf(output, "%02X:%02X:%02X:%02X:%02X:%02X",
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 void ScanWiFi() {
-  Serial.println("Scan start");
-  // WiFi.scanNetworks will return the number of networks found.
   int n = WiFi.scanNetworks();
-  Serial.println("Scan done");
   if (n == 0) {
-    Serial.println("no networks found");
+    Serial.println();
+    Serial.println("OK");
   } else {
-    Serial.print(n);
-    Serial.println(" networks found");
-    Serial.println("Nr | SSID                             | RSSI | CH | Encryption");
     for (int i = 0; i < n; ++i) {
-      // Print SSID and RSSI for each network found
-      Serial.printf("%2d", i + 1);
-      Serial.print(" | ");
-      Serial.printf("%-32.32s", WiFi.SSID(i).c_str());
-      Serial.print(" | ");
-      Serial.printf("%4" PRIi32, WiFi.RSSI(i));
-      Serial.print(" | ");
-      Serial.printf("%2" PRIi32, WiFi.channel(i));
-      Serial.print(" | ");
-      switch (WiFi.encryptionType(i)) {
-        case WIFI_AUTH_OPEN:            Serial.print("open"); break;
-        case WIFI_AUTH_WEP:             Serial.print("WEP"); break;
-        case WIFI_AUTH_WPA_PSK:         Serial.print("WPA"); break;
-        case WIFI_AUTH_WPA2_PSK:        Serial.print("WPA2"); break;
-        case WIFI_AUTH_WPA_WPA2_PSK:    Serial.print("WPA+WPA2"); break;
-        case WIFI_AUTH_WPA2_ENTERPRISE: Serial.print("WPA2-EAP"); break;
-        case WIFI_AUTH_WPA3_PSK:        Serial.print("WPA3"); break;
-        case WIFI_AUTH_WPA2_WPA3_PSK:   Serial.print("WPA2+WPA3"); break;
-        case WIFI_AUTH_WAPI_PSK:        Serial.print("WAPI"); break;
-        default:                        Serial.print("unknown");
-      }
-      Serial.println();
+      char macStr[18];
+      formatMacAddress(WiFi.BSSID(i), macStr);
+      int ecn = getEcnValue(WiFi.encryptionType(i));
+      Serial.printf("+CWLAP:(%d,\"%s\",%d,\"%s\",%d,0,0,\"\",\"\",\"\",0)\r\n",
+                    ecn,
+                    WiFi.SSID(i).c_str(),
+                    WiFi.RSSI(i),
+                    macStr,
+                    WiFi.channel(i));
       delay(10);
     }
+    Serial.println();
+    Serial.println("OK");
   }
-
-  // Delete the scan result to free memory for code below.
   WiFi.scanDelete();
-  Serial.println("-------------------------------------");
 }
+
+void processCommand(char* cmd) {
+  Serial.println(cmd);
+  Serial.println();
+  if (strcmp(cmd, "AT") == 0) {
+    Serial.println("OK");
+  } else if (strcmp(cmd, "AT+CWLAP") == 0) {
+    ScanWiFi();
+  } else {
+    Serial.println("ERROR");
+  }
+}
+
+void setupEntry() {
+  Serial.begin(115200);
+  WiFi.STA.begin();
+  Serial.println("Ready");
+}
+
 void loopEntry() {
-  Serial.println("-------------------------------------");
-  Serial.println("Default wifi band mode scan:");
-  Serial.println("-------------------------------------");
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2)
-  WiFi.setBandMode(WIFI_BAND_MODE_AUTO);
-#endif
-  ScanWiFi();
-#if CONFIG_SOC_WIFI_SUPPORT_5G
-  // Wait a bit before scanning again.
-  delay(1000);
-  Serial.println("-------------------------------------");
-  Serial.println("2.4 Ghz wifi band mode scan:");
-  Serial.println("-------------------------------------");
-  WiFi.setBandMode(WIFI_BAND_MODE_2G_ONLY);
-  ScanWiFi();
-  // Wait a bit before scanning again.
-  delay(1000);
-  Serial.println("-------------------------------------");
-  Serial.println("5 Ghz wifi band mode scan:");
-  Serial.println("-------------------------------------");
-  WiFi.setBandMode(WIFI_BAND_MODE_5G_ONLY);
-  ScanWiFi();
-#endif
-  // Wait a bit before scanning again.
-  delay(10000);
+  while (Serial.available() > 0) {
+    char c = Serial.read();
+    
+    if (c == '\r') {
+      continue;
+    }
+    
+    if (c == '\n') {
+      if (bufferIndex > 0) {
+        serialBuffer[bufferIndex] = '\0';
+        processCommand(serialBuffer);
+        bufferIndex = 0;
+      }
+    } else {
+      if (bufferIndex < SERIAL_BUFFER_SIZE - 1) {
+        serialBuffer[bufferIndex++] = c;
+      } else {
+        bufferIndex = 0;
+      }
+    }
+  }
 }
