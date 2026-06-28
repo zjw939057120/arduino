@@ -3,6 +3,9 @@
 #include <WiFi.h>
 #include <string.h>
 #include <Preferences.h>
+#include <BLEDevice.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
 
 #define SERIAL_BUFFER_SIZE 128
 #define NVS_NAMESPACE "wifi_config"
@@ -10,6 +13,31 @@
 char serialBuffer[SERIAL_BUFFER_SIZE];
 int bufferIndex = 0;
 Preferences preferences;
+BLEScan* pBLEScan;
+
+class MyBLECallback : public BLEAdvertisedDeviceCallbacks {
+public:
+  void onResult(BLEAdvertisedDevice device) {
+    String addr = device.getAddress().toString();
+    int rssi = device.getRSSI();
+
+    uint8_t* advData = device.getPayload();
+    size_t advLen = device.getPayloadLength();
+    char advDataStr[512] = "";
+    for (size_t i = 0; i < advLen && i < 255; i++) {
+      sprintf(advDataStr + i * 2, "%02X", advData[i]);
+    }
+
+    char scanRspStr[1] = "";
+
+    int addrType = (device.getAddressType() == BLE_ADDR_PUBLIC) ? 0 : 1;
+
+    Serial.printf("+BLESCAN:%s,%d,%s,%s,%d\r\n",
+                  addr.c_str(), rssi, advDataStr, scanRspStr, addrType);
+  }
+};
+
+MyBLECallback bleCallback;
 
 int getEcnValue(wifi_auth_mode_t encryptionType) {
   switch (encryptionType) {
@@ -31,7 +59,15 @@ void formatMacAddress(uint8_t* mac, char* output) {
           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
-bool parseCWJAP(char* cmd, char* ssid, char* pwd) {
+void hexToStr(uint8_t* data, int length, char* output) {
+  int index = 0;
+  for (int i = 0; i < length; i++) {
+    index += sprintf(output + index, "%02X", data[i]);
+  }
+  output[index] = '\0';
+}
+
+bool parseWiFiCommand(char* cmd, char* ssid, char* pwd) {
   char* paramStart = cmd + 9;
   char* comma = strchr(paramStart, ',');
   
@@ -68,6 +104,21 @@ bool parseCWJAP(char* cmd, char* ssid, char* pwd) {
   pwd[63] = '\0';
   
   return true;
+}
+
+bool parseBLECommand(char* cmd, int* mode, int* duration) {
+  char* paramStart = cmd + 11;
+  char* comma = strchr(paramStart, ',');
+
+  if (comma == NULL) {
+    return false;
+  }
+
+  *comma = '\0';
+  *mode = atoi(paramStart);
+  *duration = atoi(comma + 1);
+
+  return (*mode == 1 && *duration > 0 && *duration <= 60);
 }
 
 void saveWiFiConfig(char* ssid, char* pwd) {
@@ -123,10 +174,20 @@ void ScanWiFi() {
   WiFi.scanDelete();
 }
 
+void DoBLEScan(int duration) {
+  if (!pBLEScan) {
+    Serial.println("ERROR");
+    return;
+  }
+
+  pBLEScan->clearResults();
+  pBLEScan->start(duration, false);
+
+  Serial.println("OK");
+  Serial.println("+BLESCANDONE");
+}
+
 bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
-  WiFi.disconnect(true);
-  delay(500);
-  
   WiFi.setMinSecurity(minSecurity);
   WiFi.begin(ssid, pwd);
   
@@ -177,7 +238,7 @@ bool autoConnect(char* ssid, char* pwd) {
   return false;
 }
 
-void ConnectWiFi(char* ssid, char* pwd) {
+void DoWiFiConnect(char* ssid, char* pwd) {
   if (strlen(ssid) == 0) {
     Serial.print("+CWJAP:4\r\n");
     Serial.print("+CWSTATE:0,\"\"\r\n");
@@ -209,8 +270,17 @@ void processCommand(char* cmd) {
     char ssid[33];
     char pwd[65];
     
-    if (parseCWJAP(cmd, ssid, pwd)) {
-      ConnectWiFi(ssid, pwd);
+    if (parseWiFiCommand(cmd, ssid, pwd)) {
+      DoWiFiConnect(ssid, pwd);
+    } else {
+      Serial.println("ERROR");
+    }
+  } else if (strncmp(cmd, "AT+BLESCAN=", 11) == 0) {
+    int mode = 0;
+    int duration = 0;
+    
+    if (parseBLECommand(cmd, &mode, &duration)) {
+      DoBLEScan(duration);
     } else {
       Serial.println("ERROR");
     }
@@ -223,6 +293,14 @@ void setupEntry() {
   Serial.begin(115200);
   delay(1000);
   Serial.print("\r\nready\r\n");
+  
+  BLEDevice::init("");
+  pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(&bleCallback);
+  pBLEScan->setActiveScan(true);
+  pBLEScan->setInterval(100);
+  pBLEScan->setWindow(99);
+  
   WiFi.STA.begin();
   
   char ssid[33] = "";
