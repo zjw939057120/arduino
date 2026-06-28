@@ -2,11 +2,14 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <string.h>
+#include <Preferences.h>
 
 #define SERIAL_BUFFER_SIZE 128
+#define NVS_NAMESPACE "wifi_config"
 
 char serialBuffer[SERIAL_BUFFER_SIZE];
 int bufferIndex = 0;
+Preferences preferences;
 
 int getEcnValue(wifi_auth_mode_t encryptionType) {
   switch (encryptionType) {
@@ -67,6 +70,37 @@ bool parseCWJAP(char* cmd, char* ssid, char* pwd) {
   return true;
 }
 
+void saveWiFiConfig(char* ssid, char* pwd) {
+  preferences.begin(NVS_NAMESPACE, false);
+  preferences.putString("ssid", ssid);
+  preferences.putString("pwd", pwd);
+  preferences.end();
+}
+
+bool loadWiFiConfig(char* ssid, char* pwd) {
+  preferences.begin(NVS_NAMESPACE, true);
+  String savedSsid = preferences.getString("ssid", "");
+  String savedPwd = preferences.getString("pwd", "");
+  preferences.end();
+  
+  if (savedSsid.length() == 0) {
+    return false;
+  }
+  
+  strncpy(ssid, savedSsid.c_str(), 32);
+  ssid[31] = '\0';
+  strncpy(pwd, savedPwd.c_str(), 64);
+  pwd[63] = '\0';
+  
+  return true;
+}
+
+void clearWiFiConfig() {
+  preferences.begin(NVS_NAMESPACE, false);
+  preferences.clear();
+  preferences.end();
+}
+
 void ScanWiFi() {
   int n = WiFi.scanNetworks();
   if (n == 0) {
@@ -109,6 +143,7 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
       Serial.print("WIFI GOT IP\r\n");
       Serial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
       Serial.print("OK\r\n");
+      saveWiFiConfig(ssid, pwd);
       return true;
     }
     
@@ -125,6 +160,18 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
     
     delay(interval);
     elapsed += interval;
+  }
+  
+  return false;
+}
+
+bool autoConnect(char* ssid, char* pwd) {
+  if (attemptConnect(ssid, pwd, WIFI_AUTH_WPA2_PSK)) {
+    return true;
+  }
+  
+  if (attemptConnect(ssid, pwd, WIFI_AUTH_OPEN)) {
+    return true;
   }
   
   return false;
@@ -174,8 +221,16 @@ void processCommand(char* cmd) {
 
 void setupEntry() {
   Serial.begin(115200);
+  delay(1000);
+  Serial.print("\r\nready\r\n");
   WiFi.STA.begin();
-  Serial.println("Ready");
+  
+  char ssid[33] = "";
+  char pwd[65] = "";
+  
+  if (loadWiFiConfig(ssid, pwd)) {
+    autoConnect(ssid, pwd);
+  }
 }
 
 void loopEntry() {
