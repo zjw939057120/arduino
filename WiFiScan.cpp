@@ -1,3 +1,4 @@
+#include "Config.h"
 #include "WiFiScan.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -32,7 +33,7 @@ public:
 
     int addrType = (device.getAddressType() == BLE_ADDR_PUBLIC) ? 0 : 1;
 
-    Serial.printf("+BLESCAN:%s,%d,%s,%s,%d\r\n",
+    MySerial.printf("+BLESCAN:%s,%d,%s,%s,%d\r\n",
                   addr.c_str(), rssi, advDataStr, scanRspStr, addrType);
   }
 };
@@ -155,13 +156,13 @@ void clearWiFiConfig() {
 void ScanWiFi() {
   int n = WiFi.scanNetworks();
   if (n == 0) {
-    Serial.println("OK");
+    MySerial.println("OK");
   } else {
     for (int i = 0; i < n; ++i) {
       char macStr[18];
       formatMacAddress(WiFi.BSSID(i), macStr);
       int ecn = getEcnValue(WiFi.encryptionType(i));
-      Serial.printf("+CWLAP:(%d,\"%s\",%d,\"%s\",%d,0,0,\"\",\"\",\"\",0)\r\n",
+      MySerial.printf("+CWLAP:(%d,\"%s\",%d,\"%s\",%d,0,0,\"\",\"\",\"\",0)\r\n",
                     ecn,
                     WiFi.SSID(i).c_str(),
                     WiFi.RSSI(i),
@@ -169,22 +170,22 @@ void ScanWiFi() {
                     WiFi.channel(i));
       delay(10);
     }
-    Serial.println("OK");
+    MySerial.println("OK");
   }
   WiFi.scanDelete();
 }
 
 void DoBLEScan(int duration) {
   if (!pBLEScan) {
-    Serial.println("ERROR");
+    MySerial.println("ERROR");
     return;
   }
 
   pBLEScan->clearResults();
   pBLEScan->start(duration, false);
 
-  Serial.println("OK");
-  Serial.println("+BLESCANDONE");
+  MySerial.println("OK");
+  MySerial.println("+BLESCANDONE");
 }
 
 bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
@@ -200,10 +201,10 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
     status = WiFi.status();
     
     if (status == WL_CONNECTED) {
-      Serial.print("WIFI CONNECTED\r\n");
-      Serial.print("WIFI GOT IP\r\n");
-      Serial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
-      Serial.print("OK\r\n");
+      MySerial.print("WIFI CONNECTED\r\n");
+      MySerial.print("WIFI GOT IP\r\n");
+      MySerial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
+      MySerial.print("OK\r\n");
       saveWiFiConfig(ssid, pwd);
       return true;
     }
@@ -213,9 +214,9 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
     }
     
     if (status == WL_NO_SSID_AVAIL) {
-      Serial.print("+CWJAP:3\r\n");
-      Serial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
-      Serial.print("ERROR\r\n");
+      MySerial.print("+CWJAP:3\r\n");
+      MySerial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
+      MySerial.print("ERROR\r\n");
       return true;
     }
     
@@ -240,9 +241,9 @@ bool autoConnect(char* ssid, char* pwd) {
 
 void DoWiFiConnect(char* ssid, char* pwd) {
   if (strlen(ssid) == 0) {
-    Serial.print("+CWJAP:4\r\n");
-    Serial.print("+CWSTATE:0,\"\"\r\n");
-    Serial.print("ERROR\r\n");
+    MySerial.print("+CWJAP:4\r\n");
+    MySerial.print("+CWSTATE:0,\"\"\r\n");
+    MySerial.print("ERROR\r\n");
     return;
   }
   
@@ -254,16 +255,16 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     return;
   }
   
-  Serial.print("+CWJAP:1\r\n");
-  Serial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
-  Serial.print("ERROR\r\n");
+  MySerial.print("+CWJAP:1\r\n");
+  MySerial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
+  MySerial.print("ERROR\r\n");
 }
 
 void processCommand(char* cmd) {
-  Serial.println(cmd);
+  MySerial.println(cmd);
   
   if (strcmp(cmd, "AT") == 0) {
-    Serial.println("OK");
+    MySerial.println("OK");
   } else if (strcmp(cmd, "AT+CWLAP") == 0) {
     ScanWiFi();
   } else if (strncmp(cmd, "AT+CWJAP=", 9) == 0) {
@@ -273,7 +274,7 @@ void processCommand(char* cmd) {
     if (parseWiFiCommand(cmd, ssid, pwd)) {
       DoWiFiConnect(ssid, pwd);
     } else {
-      Serial.println("ERROR");
+      MySerial.println("ERROR");
     }
   } else if (strncmp(cmd, "AT+BLESCAN=", 11) == 0) {
     int mode = 0;
@@ -282,17 +283,22 @@ void processCommand(char* cmd) {
     if (parseBLECommand(cmd, &mode, &duration)) {
       DoBLEScan(duration);
     } else {
-      Serial.println("ERROR");
+      MySerial.println("ERROR");
     }
   } else {
-    Serial.println("ERROR");
+    MySerial.println("ERROR");
   }
 }
 
 void setupEntry() {
-  Serial.begin(115200);
+#if ARDUINO_AirM2M_CORE_ESP32C3
+  MySerial.begin(115200);
+#else
+  MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
+#endif
+
   delay(1000);
-  Serial.print("\r\nready\r\n");
+  MySerial.print("ready\r\n");
   
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
@@ -312,8 +318,8 @@ void setupEntry() {
 }
 
 void loopEntry() {
-  while (Serial.available() > 0) {
-    char c = Serial.read();
+  while (MySerial.available() > 0) {
+    char c = MySerial.read();
     
     if (c == '\r') {
       continue;

@@ -7,4 +7,4 @@
 void setupEntry();
 void loopEntry();
 
-#endif
+#endif // WIFI_SCAN_H
