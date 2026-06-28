@@ -189,11 +189,13 @@ void DoBLEScan(int duration) {
 }
 
 bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
+  WiFi.disconnect();
   WiFi.setMinSecurity(minSecurity);
   WiFi.begin(ssid, pwd);
   
-  int timeout = 10000;
-  int interval = 500;
+  // Reduced timeout and interval to speed up connect attempts
+  const int timeout = 5000; // 5 seconds
+  const int interval = 200; // 200 ms
   int elapsed = 0;
   wl_status_t status;
   
@@ -224,6 +226,17 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
     elapsed += interval;
   }
   
+  // Final check: one quick status read before giving up
+  status = WiFi.status();
+  if (status == WL_CONNECTED) {
+    MySerial.print("WIFI CONNECTED\r\n");
+    MySerial.print("WIFI GOT IP\r\n");
+    MySerial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
+    MySerial.print("OK\r\n");
+    saveWiFiConfig(ssid, pwd);
+    return true;
+  }
+
   return false;
 }
 
