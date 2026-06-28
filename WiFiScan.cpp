@@ -7,14 +7,23 @@
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 #define SERIAL_BUFFER_SIZE 128
 #define NVS_NAMESPACE "wifi_config"
+#define COMMAND_QUEUE_SIZE 8
+
+typedef struct {
+  char cmd[SERIAL_BUFFER_SIZE];
+} CommandMessage;
 
 char serialBuffer[SERIAL_BUFFER_SIZE];
 int bufferIndex = 0;
 Preferences preferences;
 BLEScan* pBLEScan;
+static QueueHandle_t commandQueue = NULL;
 
 class MyBLECallback : public BLEAdvertisedDeviceCallbacks {
 public:
@@ -168,7 +177,7 @@ void ScanWiFi() {
                     WiFi.RSSI(i),
                     macStr,
                     WiFi.channel(i));
-      delay(10);
+      vTaskDelay(10 / portTICK_PERIOD_MS);
     }
     MySerial.println("OK");
   }
@@ -222,7 +231,7 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
       return true;
     }
     
-    delay(interval);
+    vTaskDelay(interval / portTICK_PERIOD_MS);
     elapsed += interval;
   }
   
@@ -303,6 +312,59 @@ void processCommand(char* cmd) {
   }
 }
 
+void SerialTask(void* pvParameters) {
+  char localBuffer[SERIAL_BUFFER_SIZE];
+  int localIndex = 0;
+  CommandMessage msg;
+
+  while (true) {
+    while (MySerial.available() > 0) {
+      char c = MySerial.read();
+
+      if (c == '\r') {
+        continue;
+      }
+
+      if (c == '\n') {
+        if (localIndex > 0) {
+          localBuffer[localIndex] = '\0';
+          strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
+          if (commandQueue != NULL) {
+            if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
+              MySerial.println("ERROR: command queue full");
+            }
+          }
+          localIndex = 0;
+        }
+      } else {
+        if (localIndex < SERIAL_BUFFER_SIZE - 1) {
+          localBuffer[localIndex++] = c;
+        } else {
+          localIndex = 0;
+        }
+      }
+    }
+
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
+
+void CommandTask(void* pvParameters) {
+  char ssid[33] = "";
+  char pwd[65] = "";
+
+  if (loadWiFiConfig(ssid, pwd)) {
+    autoConnect(ssid, pwd);
+  }
+
+  CommandMessage msg;
+  while (true) {
+    if (xQueueReceive(commandQueue, &msg, portMAX_DELAY) == pdTRUE) {
+      processCommand(msg.cmd);
+    }
+  }
+}
+
 void setupEntry() {
 #if ARDUINO_AirM2M_CORE_ESP32C3
   MySerial.begin(115200);
@@ -310,7 +372,7 @@ void setupEntry() {
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
 #endif
 
-  delay(1000);
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
   MySerial.print("ready\r\n");
   
   BLEDevice::init("");
@@ -321,35 +383,16 @@ void setupEntry() {
   pBLEScan->setWindow(99);
   
   WiFi.STA.begin();
-  
-  char ssid[33] = "";
-  char pwd[65] = "";
-  
-  if (loadWiFiConfig(ssid, pwd)) {
-    autoConnect(ssid, pwd);
+
+  commandQueue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(CommandMessage));
+  if (commandQueue == NULL) {
+    MySerial.println("ERROR: command queue create failed");
+  } else {
+    xTaskCreate(SerialTask, "SerialTask", 4096, NULL, 1, NULL);
+    xTaskCreate(CommandTask, "CommandTask", 8192, NULL, 1, NULL);
   }
 }
 
 void loopEntry() {
-  while (MySerial.available() > 0) {
-    char c = MySerial.read();
-    
-    if (c == '\r') {
-      continue;
-    }
-    
-    if (c == '\n') {
-      if (bufferIndex > 0) {
-        serialBuffer[bufferIndex] = '\0';
-        processCommand(serialBuffer);
-        bufferIndex = 0;
-      }
-    } else {
-      if (bufferIndex < SERIAL_BUFFER_SIZE - 1) {
-        serialBuffer[bufferIndex++] = c;
-      } else {
-        bufferIndex = 0;
-      }
-    }
-  }
+  taskYIELD();
 }
