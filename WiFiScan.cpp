@@ -283,7 +283,7 @@ void DoWiFiConnect(char* ssid, char* pwd) {
 }
 
 void processCommand(char* cmd) {
-  MySerial.println(cmd);
+  // MySerial.println(cmd);
   
   if (strcmp(cmd, "AT") == 0) {
     MySerial.println("OK");
@@ -313,6 +313,43 @@ void processCommand(char* cmd) {
 }
 
 void SerialTask(void* pvParameters) {
+  char localBuffer[SERIAL_BUFFER_SIZE];
+  int localIndex = 0;
+  CommandMessage msg;
+
+  while (true) {
+    while (Serial.available() > 0) {
+      char c = Serial.read();
+
+      if (c == '\r') {
+        continue;
+      }
+
+      if (c == '\n') {
+        if (localIndex > 0) {
+          localBuffer[localIndex] = '\0';
+          strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
+          if (commandQueue != NULL) {
+            if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
+              Serial.println("ERROR: command queue full");
+            }
+          }
+          localIndex = 0;
+        }
+      } else {
+        if (localIndex < SERIAL_BUFFER_SIZE - 1) {
+          localBuffer[localIndex++] = c;
+        } else {
+          localIndex = 0;
+        }
+      }
+    }
+
+    vTaskDelay(10 / portTICK_PERIOD_MS);
+  }
+}
+
+void MySerialTask(void* pvParameters) {
   char localBuffer[SERIAL_BUFFER_SIZE];
   int localIndex = 0;
   CommandMessage msg;
@@ -365,8 +402,20 @@ void CommandTask(void* pvParameters) {
   }
 }
 
+
 void setupEntry() {
+  Serial.begin(115200);
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
+  Serial.print("Arduino Core Version: "); 
+  Serial.println(ESP_ARDUINO_VERSION_STR);// 打印 Arduino Core 版本
+  Serial.print("ESP-IDF Version: ");
+  Serial.println(esp_get_idf_version());// 打印 ESP-IDF 版本
+  Serial.print("ESP32 Chip ID: ");
+  Serial.println(ESP.getEfuseMac());
+  Serial.print("ESP32 Chip Model: ");
+  Serial.println(ESP.getChipModel());
+  Serial.print("ESP32 Chip Cores: ");
+  Serial.println(ESP.getChipCores());
 
   vTaskDelay(1000 / portTICK_PERIOD_MS);
   MySerial.println("ready");
@@ -385,6 +434,7 @@ void setupEntry() {
     MySerial.println("ERROR: command queue create failed");
   } else {
     xTaskCreate(SerialTask, "SerialTask", 4096, NULL, 1, NULL);
+    xTaskCreate(MySerialTask, "MySerialTask", 4096, NULL, 1, NULL);
     xTaskCreate(CommandTask, "CommandTask", 8192, NULL, 1, NULL);
   }
 }

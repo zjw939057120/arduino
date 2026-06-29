@@ -1,7 +1,7 @@
 {
-    "configuration": "CDCOnBoot=default,PartitionScheme=default,CPUFreq=160,FlashFreq=80,UploadSpeed=921600,DebugLevel=none,EraseFlash=none",
-    "board": "esp32:esp32:AirM2M_CORE_ESP32C3",
-    "port": "COM12",
+    "configuration": "JTAGAdapter=default,CDCOnBoot=default,PartitionScheme=default,CPUFreq=160,FlashMode=qio,FlashFreq=80,FlashSize=4M,UploadSpeed=921600,DebugLevel=none,EraseFlash=none,ZigbeeMode=default",
+    "board": "esp32:esp32:esp32c3",
+    "port": "COM33",
     "sketch": "WiFiScan.ino",
     "output": "./build"
 }
