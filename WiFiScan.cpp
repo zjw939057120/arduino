@@ -13,6 +13,7 @@
 
 #define SERIAL_BUFFER_SIZE 128
 #define NVS_NAMESPACE "wifi_config"
+#define NVS_UART_NAMESPACE "uart_config"
 #define COMMAND_QUEUE_SIZE 8
 
 typedef struct {
@@ -42,7 +43,7 @@ public:
 
     int addrType = (device.getAddressType() == BLE_ADDR_PUBLIC) ? 0 : 1;
 
-    MySerial.printf("+BLESCAN:%s,%d,%s,%s,%d\r\n",
+    MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%d\r\n",
                   addr.c_str(), rssi, advDataStr, scanRspStr, addrType);
   }
 };
@@ -129,6 +130,76 @@ bool parseBLECommand(char* cmd, int* mode, int* duration) {
   *duration = atoi(comma + 1);
 
   return (*mode == 1 && *duration > 0 && *duration <= 60);
+}
+
+bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, int* parity) {
+  char* paramStart = cmd + 12;
+  char* next = strchr(paramStart, ',');
+  if (next == NULL) {
+    return false;
+  }
+  *next = '\0';
+  *baud = atoi(paramStart);
+
+  char* token = next + 1;
+  next = strchr(token, ',');
+  if (next == NULL) {
+    return false;
+  }
+  *next = '\0';
+  *dataBits = atoi(token);
+
+  token = next + 1;
+  next = strchr(token, ',');
+  if (next == NULL) {
+    return false;
+  }
+  *next = '\0';
+  *stopBits = atoi(token);
+
+  token = next + 1;
+  if (token == NULL || *token == '\0') {
+    return false;
+  }
+
+  *parity = atoi(token);
+
+  // Validation: ESP32-C3 ranges and requested numeric encoding
+  if (*baud < 80 || *baud > 5000000) return false;
+  if (*dataBits < 5 || *dataBits > 8) return false;
+  if (*stopBits < 1 || *stopBits > 3) return false; // 1=1,2=1.5,3=2
+  if (*parity < 0 || *parity > 2) return false; // 0=None,1=Odd,2=Even
+
+  return true;
+}
+
+void saveUartConfig(int baud, int dataBits, int stopBits, int parity) {
+  preferences.begin(NVS_UART_NAMESPACE, false);
+  preferences.putInt("baud", baud);
+  preferences.putInt("data_bits", dataBits);
+  preferences.putInt("stop_bits", stopBits);
+  preferences.putInt("parity", parity);
+  preferences.end();
+}
+
+bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity) {
+  preferences.begin(NVS_UART_NAMESPACE, true);
+  if (!preferences.isKey("baud") || !preferences.isKey("data_bits") || !preferences.isKey("stop_bits") || !preferences.isKey("parity")) {
+    preferences.end();
+    return false;
+  }
+
+  *baud = preferences.getInt("baud", 115200);
+  *dataBits = preferences.getInt("data_bits", 8);
+  *stopBits = preferences.getInt("stop_bits", 1);
+  *parity = preferences.getInt("parity", 0);
+  preferences.end();
+
+  return true;
+}
+
+void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity) {
+  MySerial.printf("+UART_DEF:%d,%d,%d,%d\r\n", baud, dataBits, stopBits, parity);
 }
 
 void saveWiFiConfig(char* ssid, char* pwd) {
@@ -283,13 +354,21 @@ void DoWiFiConnect(char* ssid, char* pwd) {
 }
 
 void processCommand(char* cmd) {
-  // MySerial.println(cmd);
-  
+  // MySerial.println(cmd);//回显AT指令
+
   if (strcmp(cmd, "AT") == 0) {
+    //测试
     MySerial.println("OK");
+  } else if (strcmp(cmd, "AT+RESTART") == 0) {
+    //重启
+    MySerial.println("OK");
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    ESP.restart();
   } else if (strcmp(cmd, "AT+CWLAP") == 0) {
+    //获取WiFi列表
     ScanWiFi();
   } else if (strncmp(cmd, "AT+CWJAP=", 9) == 0) {
+    //连接WiFi
     char ssid[33];
     char pwd[65];
     
@@ -299,6 +378,7 @@ void processCommand(char* cmd) {
       MySerial.println("ERROR");
     }
   } else if (strncmp(cmd, "AT+BLESCAN=", 11) == 0) {
+    //扫描BLE
     int mode = 0;
     int duration = 0;
     
@@ -307,8 +387,23 @@ void processCommand(char* cmd) {
     } else {
       MySerial.println("ERROR");
     }
+  } else if (strncmp(cmd, "AT+UART_DEF=", 12) == 0) {
+    //设置串口参数
+    int baud = 0;
+    int dataBits = 0;
+    int stopBits = 0;
+    int parity = 0;
+
+    if (parseUartConfigCommand(cmd, &baud, &dataBits, &stopBits, &parity)) {
+      saveUartConfig(baud, dataBits, stopBits, parity);
+      sendUartConfigReport(baud, dataBits, stopBits, parity);
+      MySerial.println("OK");
+    } else {
+      MySerial.println("ERROR");
+    }
   } else {
-    MySerial.println("ERROR");
+    // 无效指令
+    return;
   }
 }
 
@@ -387,6 +482,15 @@ void MySerialTask(void* pvParameters) {
 }
 
 void CommandTask(void* pvParameters) {
+  int uartBaud = 115200;
+  int uartDataBits = 8;
+  int uartStopBits = 1;
+  int uartParity = 0;
+
+  if (loadUartConfig(&uartBaud, &uartDataBits, &uartStopBits, &uartParity)) {
+    sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity);
+  }
+
   char ssid[33] = "";
   char pwd[65] = "";
 
@@ -406,6 +510,11 @@ void CommandTask(void* pvParameters) {
 void setupEntry() {
   Serial.begin(115200);
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
+  int uartBaud = 115200;
+  int uartDataBits = 8;
+  int uartStopBits = 1;
+  char uartParity = 'N';
+
   Serial.print("Arduino Core Version: "); 
   Serial.println(ESP_ARDUINO_VERSION_STR);// 打印 Arduino Core 版本
   Serial.print("ESP-IDF Version: ");
