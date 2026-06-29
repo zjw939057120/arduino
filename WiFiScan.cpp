@@ -212,10 +212,10 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
     status = WiFi.status();
     
     if (status == WL_CONNECTED) {
-      MySerial.print("WIFI CONNECTED\r\n");
-      MySerial.print("WIFI GOT IP\r\n");
+      MySerial.println("WIFI CONNECTED");
+      MySerial.println("WIFI GOT IP");
       MySerial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
-      MySerial.print("OK\r\n");
+      MySerial.println("OK");
       saveWiFiConfig(ssid, pwd);
       return true;
     }
@@ -225,9 +225,9 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
     }
     
     if (status == WL_NO_SSID_AVAIL) {
-      MySerial.print("+CWJAP:3\r\n");
+      MySerial.println("+CWJAP:3");
       MySerial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
-      MySerial.print("ERROR\r\n");
+      MySerial.println("ERROR");
       return true;
     }
     
@@ -238,10 +238,10 @@ bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
   // Final check: one quick status read before giving up
   status = WiFi.status();
   if (status == WL_CONNECTED) {
-    MySerial.print("WIFI CONNECTED\r\n");
-    MySerial.print("WIFI GOT IP\r\n");
+    MySerial.println("WIFI CONNECTED");
+    MySerial.println("WIFI GOT IP");
     MySerial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
-    MySerial.print("OK\r\n");
+    MySerial.println("OK");
     saveWiFiConfig(ssid, pwd);
     return true;
   }
@@ -263,9 +263,9 @@ bool autoConnect(char* ssid, char* pwd) {
 
 void DoWiFiConnect(char* ssid, char* pwd) {
   if (strlen(ssid) == 0) {
-    MySerial.print("+CWJAP:4\r\n");
-    MySerial.print("+CWSTATE:0,\"\"\r\n");
-    MySerial.print("ERROR\r\n");
+    MySerial.println("+CWJAP:4");
+    MySerial.println("+CWSTATE:0,\"\"");
+    MySerial.println("ERROR");
     return;
   }
   
@@ -277,9 +277,9 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     return;
   }
   
-  MySerial.print("+CWJAP:1\r\n");
+  MySerial.println("+CWJAP:1");
   MySerial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
-  MySerial.print("ERROR\r\n");
+  MySerial.println("ERROR");
 }
 
 void processCommand(char* cmd) {
@@ -366,14 +366,10 @@ void CommandTask(void* pvParameters) {
 }
 
 void setupEntry() {
-#if ARDUINO_AirM2M_CORE_ESP32C3
-  MySerial.begin(115200);
-#else
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
-#endif
 
   vTaskDelay(1000 / portTICK_PERIOD_MS);
-  MySerial.print("ready\r\n");
+  MySerial.println("ready");
   
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
