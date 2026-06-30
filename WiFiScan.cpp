@@ -175,9 +175,14 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
   return true;
 }
 
+uint8_t disconnected_num = 0; // 断线次数
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      // 重置断线次数
+      disconnected_num = 0;
+      WiFi.setAutoReconnect(true);
+
       MySerial.println("WIFI CONNECTED");
       if (pendingSSID[0] != '\0') {
         saveWiFiConfig(pendingSSID, pendingPWD);
@@ -187,6 +192,13 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       break;
 
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+      // 累计断线次数
+      if (disconnected_num > 5) {
+        WiFi.setAutoReconnect(false);
+      } else {
+        disconnected_num++;
+      }
+
       MySerial.println("WIFI DISCONNECTED");
       int errorCode = 5;
       switch (info.wifi_sta_disconnected.reason)
@@ -220,7 +232,6 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       break;
 
     default:
-      MySerial.printf("+CWJAP:%d\r\n", event);
       break;
   }
   //wifi状态
@@ -345,6 +356,7 @@ void DoBLEScan(int duration) {
 }
 
 bool autoConnect(char* ssid, char* pwd) {
+  //自动连接WiFi，尝试WPA2和OPEN两种模式
   const wifi_auth_mode_t authModes[] = {
     WIFI_AUTH_WPA2_PSK,
     WIFI_AUTH_OPEN
@@ -390,6 +402,9 @@ void DoWiFiConnect(char* ssid, char* pwd) {
   pendingPWD[sizeof(pendingPWD) - 1] = '\0';
 
   WiFi.disconnect();
+  // 重置断线次数
+  disconnected_num = 0;
+  WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, pwd);
   MySerial.println("OK");
 }
@@ -577,6 +592,7 @@ void setupEntry() {
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
   
+  WiFi.setAutoReconnect(true);
   WiFi.onEvent(WiFiEvent);
   WiFi.STA.begin();
 
