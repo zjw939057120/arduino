@@ -14,6 +14,7 @@
 #define SERIAL_BUFFER_SIZE 128
 #define NVS_NAMESPACE "wifi_config"
 #define NVS_UART_NAMESPACE "uart_config"
+#define NVS_BLE_NAMESPACE "ble_config"
 #define COMMAND_QUEUE_SIZE 8
 
 typedef struct {
@@ -186,6 +187,103 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
   if (*addr < 0 || *addr > 255) return false;
 
   return true;
+}
+
+bool parseBleListCommand(char* cmd, int* count, char macs[MAX_BLE_ADDRESSES][18]) {
+  char* paramStart = cmd + 11; // skip "AT+BLE_LST="
+  
+  // Parse first parameter: count
+  char* comma = strchr(paramStart, ',');
+  if (comma == NULL) {
+    return false;
+  }
+  *comma = '\0';
+  *count = atoi(paramStart);
+  
+  if (*count <= 0 || *count > MAX_BLE_ADDRESSES) {
+    return false;
+  }
+  
+  // Parse MAC addresses
+  char* token = comma + 1;
+  int macIdx = 0;
+  
+  while (macIdx < *count && token != NULL) {
+    comma = strchr(token, ',');
+    if (comma != NULL) {
+      *comma = '\0';
+    }
+
+    char* start = token;
+    char* end = token + strlen(token);
+
+    if (*start == '"') {
+      start++;
+    }
+    if (end > start && *(end - 1) == '"') {
+      *(end - 1) = '\0';
+    }
+
+    if (*start == '\0') {
+      return false;
+    }
+
+    strncpy(macs[macIdx], start, 17);
+    macs[macIdx][17] = '\0';
+    macIdx++;
+
+    if (comma == NULL) {
+      break;
+    }
+    token = comma + 1;
+  }
+
+  if (macIdx != *count) {
+    return false;
+  }
+
+  return true;
+}
+
+void saveBleListConfig(char macs[MAX_BLE_ADDRESSES][18]) {
+  preferences.begin(NVS_BLE_NAMESPACE, false);
+  for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
+    char key[16];
+    snprintf(key, sizeof(key), "mac_%d", i);
+    preferences.putString(key, macs[i]);
+  }
+  preferences.end();
+}
+
+bool loadBleListConfig(char macs[MAX_BLE_ADDRESSES][18]) {
+  preferences.begin(NVS_BLE_NAMESPACE, true);
+  bool hasAny = false;
+  for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
+    char key[16];
+    snprintf(key, sizeof(key), "mac_%d", i);
+    String value = preferences.getString(key, "");
+    if (value.length() > 0) {
+      strncpy(macs[i], value.c_str(), 17);
+      macs[i][17] = '\0';
+      hasAny = true;
+    } else {
+      macs[i][0] = '\0';
+    }
+  }
+  preferences.end();
+  return hasAny;
+}
+
+void sendBleListReport(int count, char macs[10][18]) {
+  MySerial.printf("+BLE_LST:%d", count);
+  for (int i = 0; i < count; ++i) {
+    if (macs[i][0] != '\0') {
+      MySerial.printf(",\"%s\"", macs[i]);
+    } else {
+      MySerial.print(",\"\"");
+    }
+  }
+  MySerial.println();
 }
 
 uint8_t disconnected_num = 0; // 断线次数
@@ -458,6 +556,16 @@ void processCommand(char* cmd) {
     } else {
       MySerial.println("ERROR");
     }
+  } else if (strncmp(cmd, "AT+BLE_LST=", 11) == 0) {
+    int count = 0;
+    char macs[MAX_BLE_ADDRESSES][18] = {{0}};
+    if (parseBleListCommand(cmd, &count, macs)) {
+      saveBleListConfig(macs);
+      sendBleListReport(count, macs);
+      MySerial.println("OK");
+    } else {
+      MySerial.println("ERROR");
+    }
   } else if (strncmp(cmd, "AT+UART_DEF=", 12) == 0) {
     //设置串口参数
     int baud = 0;
@@ -562,6 +670,19 @@ void CommandTask(void* pvParameters) {
 
   if (loadUartConfig(&uartBaud, &uartDataBits, &uartStopBits, &uartParity, &uartAddr)) {
     sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity, uartAddr);
+  }
+
+  char macs[MAX_BLE_ADDRESSES][18] = {{0}};
+  int count = 0;
+  if (loadBleListConfig(macs)) {
+    for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
+      if (macs[i][0] != '\0') {
+        count++;
+      }
+    }
+    if (count > 0) {
+      sendBleListReport(count, macs);
+    }
   }
 
   char ssid[33] = "";

@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+#define MAX_BLE_ADDRESSES 10
+
 void setupEntry();
 void loopEntry();
 int getEcnValue(wifi_auth_mode_t encryptionType);
@@ -24,4 +26,8 @@ void DoBLEScan(int duration);
 bool autoConnect(char* ssid, char* pwd);
 void DoWiFiConnect(char* ssid, char* pwd);
 void processCommand(char* cmd);
+bool parseBleListCommand(char* cmd, int* count, char macs[MAX_BLE_ADDRESSES][18]);
+void saveBleListConfig(char macs[MAX_BLE_ADDRESSES][18]);
+bool loadBleListConfig(char macs[MAX_BLE_ADDRESSES][18]);
+void sendBleListReport(int count, char macs[MAX_BLE_ADDRESSES][18]);
 #endif // WIFI_SCAN_H
