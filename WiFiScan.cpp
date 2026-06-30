@@ -33,6 +33,7 @@ class MyBLECallback : public BLEAdvertisedDeviceCallbacks {
 public:
   void onResult(BLEAdvertisedDevice device) {
     String addr = device.getAddress().toString();
+    addr.toUpperCase();
     int rssi = device.getRSSI();
 
     uint8_t* advData = device.getPayload();
@@ -42,12 +43,12 @@ public:
       sprintf(advDataStr + i * 2, "%02X", advData[i]);
     }
 
-    char scanRspStr[1] = "";
-
     int addrType = (device.getAddressType() == BLE_ADDR_PUBLIC) ? 0 : 1;
+    String serviceData = device.haveServiceData() ? device.getServiceData(0) : "";
+    String serviceUUID = device.haveServiceUUID() ? device.getServiceUUID(0).toString() : "";
 
-    MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%d\r\n",
-                  addr.c_str(), rssi, advDataStr, scanRspStr, addrType);
+    MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%s,%d\r\n",
+                  addr.c_str(), rssi, advDataStr, serviceData.c_str(), serviceUUID.c_str(), addrType);
   }
 };
 
