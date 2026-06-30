@@ -5,6 +5,7 @@
 #include <WiFi.h>
 
 #define MAX_BLE_ADDRESSES 10
+#define FILTER_PARAM_MAX_LEN 32
 
 void setupEntry();
 void loopEntry();
@@ -12,7 +13,7 @@ int getEcnValue(wifi_auth_mode_t encryptionType);
 void formatMacAddress(uint8_t* mac, char* output);
 void hexToStr(uint8_t* data, int length, char* output);
 bool parseWiFiCommand(char* cmd, char* ssid, char* pwd);
-bool parseBLECommand(char* cmd, int* mode, int* duration);
+bool parseBLECommand(char* cmd, int* mode, int* duration, int* filter_type, char* filter_param);
 bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, int* parity, int* addr);
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr);

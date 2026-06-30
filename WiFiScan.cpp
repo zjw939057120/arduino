@@ -29,6 +29,9 @@ static QueueHandle_t commandQueue = NULL;
 static char pendingSSID[33] = "";
 static char pendingPWD[65] = "";
 
+int filter_type = 0;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
+char filter_param[FILTER_PARAM_MAX_LEN];// filter parameter
+
 class MyBLECallback : public BLEAdvertisedDeviceCallbacks {
 public:
   void onResult(BLEAdvertisedDevice device) {
@@ -43,12 +46,34 @@ public:
       sprintf(advDataStr + i * 2, "%02X", advData[i]);
     }
 
-    int addrType = (device.getAddressType() == BLE_ADDR_PUBLIC) ? 0 : 1;
+    String name = device.haveName() ? device.getName() : "";
     String serviceData = device.haveServiceData() ? device.getServiceData(0) : "";
     String serviceUUID = device.haveServiceUUID() ? device.getServiceUUID(0).toString() : "";
+    uint8_t addrType = device.getAddressType();
 
-    MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%s,%d\r\n",
-                  addr.c_str(), rssi, advDataStr, serviceData.c_str(), serviceUUID.c_str(), addrType);
+  bool passFilter = true; // 默认通过过滤
+  switch (filter_type)
+  {
+  case 0: // NONE
+    break;
+  case 1: // MAC
+    passFilter = strcmp(filter_param, addr.c_str()) <= 0;
+    break;
+  case 2: // NAME
+    passFilter = strcmp(filter_param, name.c_str()) <= 0;
+    break;
+  case 3: // UUID
+    passFilter = strcmp(filter_param, serviceUUID.c_str()) <= 0;
+    break;
+  case 4: // RSSI
+    passFilter = device.getRSSI() >= atoi(filter_param);
+    break;
+  default:
+    break;
+  }
+  if (passFilter) {
+    MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%s,%d\r\n", addr.c_str(), rssi, advDataStr, serviceData.c_str(), serviceUUID.c_str(), addrType);
+  }
   }
 };
 
@@ -121,19 +146,71 @@ bool parseWiFiCommand(char* cmd, char* ssid, char* pwd) {
   return true;
 }
 
-bool parseBLECommand(char* cmd, int* mode, int* duration) {
-  char* paramStart = cmd + 11;
-  char* comma = strchr(paramStart, ',');
+bool parseBLECommand(char* cmd, int* mode, int* duration, int* filter_type, char* filter_param) {
+    // 1. 定位参数起始位置 ("AT+BLESCAN=" 长度为 11)
+    char* paramStart = cmd + 11;
+    
+    // 2. 解析必选参数 <enable>
+    char* comma = strchr(paramStart, ',');
+    if (comma == NULL) {
+        // 如果没有逗号，说明只有 enable 参数，根据规范需返回 false
+        return false; 
+    }
 
-  if (comma == NULL) {
-    return false;
-  }
+    *comma = '\0'; // 截断字符串
+    *mode = atoi(paramStart);
+    
+    // 3. 解析必选参数 <duration>
+    char* token = comma + 1;
+    comma = strchr(token, ',');
+    
+    if (comma == NULL) {
+        // 只有 duration，没有 filter 参数
+        *duration = atoi(token);
+        *filter_type = 0; // 默认无过滤
+        *filter_param = '\0';
+    } else {
+        // 存在 filter 参数
+        *comma = '\0'; // 截断字符串
+        *duration = atoi(token);
+        
+        // 4. 解析可选参数 <filter_type>
+        token = comma + 1;
+        comma = strchr(token, ',');
+        
+        if (comma == NULL) {
+            // 只有 filter_type，没有 filter_param (格式不规范，返回 false)
+            return false; 
+        }
+        
+        *comma = '\0'; // 截断字符串
+        *filter_type = atoi(token);
+        
+        // 5. 解析可选参数 <filter_param>
+        token = comma + 1;
+        if (*token == '\0') {
+            // filter_param 为空，格式不规范
+            return false; 
+        }
+        
+        // 将 filter_param 拷贝到目标缓冲区，防止缓冲区溢出
+        strncpy(filter_param, token, FILTER_PARAM_MAX_LEN - 1);
+        filter_param[FILTER_PARAM_MAX_LEN - 1] = '\0'; 
+    }
 
-  *comma = '\0';
-  *mode = atoi(paramStart);
-  *duration = atoi(comma + 1);
+    // 6. 参数合法性校验
+    // mode 必须为 1 (开始扫描)
+    if (*mode != 1) return false;
+    
+    // duration 必须在 1~60 秒之间 (0 表示持续扫描，视具体需求而定，这里按你的原逻辑保留)
+    if (*duration <= 0 || *duration > 60) return false;
+    
+    // 如果设置了过滤类型，校验其范围 (1-4)
+    if (*filter_type != 0 && (*filter_type < 1 || *filter_type > 4)) {
+        return false; 
+    }
 
-  return (*mode == 1 && *duration > 0 && *duration <= 60);
+    return true;
 }
 
 bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, int* parity, int* addr) {
@@ -552,7 +629,7 @@ void processCommand(char* cmd) {
     int mode = 0;
     int duration = 0;
     
-    if (parseBLECommand(cmd, &mode, &duration)) {
+    if (parseBLECommand(cmd, &mode, &duration,&filter_type,filter_param)) {
       DoBLEScan(duration);
     } else {
       MySerial.println("ERROR");
