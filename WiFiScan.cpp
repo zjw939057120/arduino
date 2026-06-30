@@ -25,6 +25,8 @@ int bufferIndex = 0;
 Preferences preferences;
 BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
+static char pendingSSID[33] = "";
+static char pendingPWD[65] = "";
 
 class MyBLECallback : public BLEAdvertisedDeviceCallbacks {
 public:
@@ -173,6 +175,80 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
   return true;
 }
 
+void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      MySerial.println("WIFI CONNECTED");
+      if (pendingSSID[0] != '\0') {
+        saveWiFiConfig(pendingSSID, pendingPWD);
+        // pendingSSID[0] = '\0';
+        // pendingPWD[0] = '\0';
+      }
+      break;
+
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
+      MySerial.println("WIFI DISCONNECTED");
+      int errorCode = 5;
+      switch (info.wifi_sta_disconnected.reason)
+      {
+      case WIFI_REASON_NO_AP_FOUND:
+        errorCode = 3;
+        break;
+      case WIFI_REASON_AUTH_FAIL:
+      case WIFI_REASON_AUTH_EXPIRE:
+        errorCode = 2;
+        break;
+      case WIFI_REASON_BEACON_TIMEOUT:
+      case WIFI_REASON_ASSOC_FAIL:
+      case WIFI_REASON_HANDSHAKE_TIMEOUT:
+      case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+        errorCode = 1;
+        break;
+      case WIFI_REASON_CONNECTION_FAIL:
+        errorCode = 4;
+        break;
+      default:
+        errorCode = 5;
+        break;
+      }
+      MySerial.printf("+CWJAP:%d\r\n", errorCode);
+      break;
+    }
+
+    case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+      MySerial.println("WIFI GOT IP");
+      break;
+
+    default:
+      MySerial.printf("+CWJAP:%d\r\n", event);
+      break;
+  }
+  //wifi状态
+  String currentSsid = WiFi.SSID();
+  if (currentSsid.length() == 0 && pendingSSID[0] != '\0') {
+    currentSsid = String(pendingSSID);
+  }
+  // Map esp WiFi status to +CWSTATE codes (0-4) per protocol
+  auto computeCWState = []() -> int {
+    wl_status_t status = WiFi.status();
+    if (status == WL_IDLE_STATUS) {
+      return 0; // 尚未进行任何 Wi-Fi 连接
+    }
+    if (status == WL_CONNECTED) {
+      String ip = WiFi.localIP().toString();
+      if (ip != "0.0.0.0") return 2; // 已获取到 IPv4 地址
+      return 1; // 已连接上 AP，但尚未获取到 IPv4
+    }
+    if (status == WL_DISCONNECTED || status == WL_CONNECTION_LOST || status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+      return 4; // 处于断开状态
+    }
+    return 3; // 正在进行连接或重连
+  };
+
+  int cwState = computeCWState();
+  MySerial.printf("+CWSTATE:%d,\"%s\"\r\n", cwState, currentSsid.c_str());
+}
+
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity) {
   preferences.begin(NVS_UART_NAMESPACE, false);
   preferences.putInt("baud", baud);
@@ -268,89 +344,54 @@ void DoBLEScan(int duration) {
   MySerial.println("+BLESCANDONE");
 }
 
-bool attemptConnect(char* ssid, char* pwd, wifi_auth_mode_t minSecurity) {
-  WiFi.disconnect();
-  WiFi.setMinSecurity(minSecurity);
-  WiFi.begin(ssid, pwd);
-  
-  // Reduced timeout and interval to speed up connect attempts
-  const int timeout = 5000; // 5 seconds
-  const int interval = 200; // 200 ms
-  int elapsed = 0;
-  wl_status_t status;
-  
-  while (elapsed < timeout) {
-    status = WiFi.status();
-    
-    if (status == WL_CONNECTED) {
-      MySerial.println("WIFI CONNECTED");
-      MySerial.println("WIFI GOT IP");
-      MySerial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
-      MySerial.println("OK");
-      saveWiFiConfig(ssid, pwd);
-      return true;
-    }
-    
-    if (status == WL_CONNECT_FAILED) {
-      return false;
-    }
-    
-    if (status == WL_NO_SSID_AVAIL) {
-      MySerial.println("+CWJAP:3");
-      MySerial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
-      MySerial.println("ERROR");
-      return true;
-    }
-    
-    vTaskDelay(interval / portTICK_PERIOD_MS);
-    elapsed += interval;
-  }
-  
-  // Final check: one quick status read before giving up
-  status = WiFi.status();
-  if (status == WL_CONNECTED) {
-    MySerial.println("WIFI CONNECTED");
-    MySerial.println("WIFI GOT IP");
-    MySerial.printf("+CWSTATE:2,\"%s\"\r\n", ssid);
-    MySerial.println("OK");
-    saveWiFiConfig(ssid, pwd);
-    return true;
-  }
-
-  return false;
-}
-
 bool autoConnect(char* ssid, char* pwd) {
-  if (attemptConnect(ssid, pwd, WIFI_AUTH_WPA2_PSK)) {
-    return true;
+  const wifi_auth_mode_t authModes[] = {
+    WIFI_AUTH_WPA2_PSK,
+    WIFI_AUTH_OPEN
+  };
+
+  for (int i = 0; i < 2; ++i) {
+    WiFi.disconnect();
+    WiFi.setMinSecurity(authModes[i]);
+    WiFi.begin(ssid, pwd);
+
+    const int timeout = 5000;
+    const int interval = 200;
+    int elapsed = 0;
+
+    while (elapsed < timeout) {
+      wl_status_t status = WiFi.status();
+
+      if (status == WL_CONNECTED) {
+        return true;
+      }
+
+      if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+        break;
+      }
+
+      vTaskDelay(interval / portTICK_PERIOD_MS);
+      elapsed += interval;
+    }
   }
-  
-  if (attemptConnect(ssid, pwd, WIFI_AUTH_OPEN)) {
-    return true;
-  }
-  
+
   return false;
 }
 
 void DoWiFiConnect(char* ssid, char* pwd) {
   if (strlen(ssid) == 0) {
-    MySerial.println("+CWJAP:4");
-    MySerial.println("+CWSTATE:0,\"\"");
     MySerial.println("ERROR");
     return;
   }
-  
-  if (attemptConnect(ssid, pwd, WIFI_AUTH_WPA2_PSK)) {
-    return;
-  }
-  
-  if (attemptConnect(ssid, pwd, WIFI_AUTH_OPEN)) {
-    return;
-  }
-  
-  MySerial.println("+CWJAP:1");
-  MySerial.printf("+CWSTATE:0,\"%s\"\r\n", ssid);
-  MySerial.println("ERROR");
+
+  strncpy(pendingSSID, ssid, sizeof(pendingSSID) - 1);
+  pendingSSID[sizeof(pendingSSID) - 1] = '\0';
+  strncpy(pendingPWD, pwd, sizeof(pendingPWD) - 1);
+  pendingPWD[sizeof(pendingPWD) - 1] = '\0';
+
+  WiFi.disconnect();
+  WiFi.begin(ssid, pwd);
+  MySerial.println("OK");
 }
 
 void processCommand(char* cmd) {
@@ -536,6 +577,7 @@ void setupEntry() {
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
   
+  WiFi.onEvent(WiFiEvent);
   WiFi.STA.begin();
 
   commandQueue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(CommandMessage));
