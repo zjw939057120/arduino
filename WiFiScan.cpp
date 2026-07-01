@@ -28,6 +28,9 @@ BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
 static char pendingSSID[33] = "";
 static char pendingPWD[65] = "";
+char bleMacs[MAX_BLE_ADDRESSES][18] = {{0}};
+int bleCount = 0;
+
 
 int filter_type = 0;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
 char filter_param[FILTER_PARAM_MAX_LEN] = "0000ffe0";// filter parameter
@@ -94,8 +97,16 @@ public:
     bool passFilter = strcmp(filter_param, serviceUUID.c_str()) <= 0;
     if (passFilter)
     {
+      int index = selectBleDevice(addr.c_str());
+      if (index == -1) {
+        return;
+      }
       int8_t rssi = WiFi.RSSI();
-      MySerial.printf("+SENSOR:\"%s\",%s,%d\r\n", addr.c_str(), advDataStr, rssi);
+        //大端序温度数据
+      uint16_t temp = ((uint8_t)advData[advLen - 3] << 8) | (uint8_t)advData[advLen - 4];
+      // 大端序湿度数据
+      uint16_t hum = ((uint8_t)advData[advLen - 1] << 8) | (uint8_t)advData[advLen - 2];
+      MySerial.printf("+SENSOR:%d,\"%s\",%s,%d,%d,%d\r\n", index,addr.c_str(), advDataStr, rssi, temp, hum);
     }
   }
 };
@@ -306,7 +317,7 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
   return true;
 }
 
-bool parseBleListCommand(char* cmd, int* count, char macs[MAX_BLE_ADDRESSES][18]) {
+bool parseBleListCommand(char* cmd, int* count) {
   char* paramStart = cmd + 11; // skip "AT+BLE_LST="
   
   // Parse first parameter: count
@@ -345,8 +356,8 @@ bool parseBleListCommand(char* cmd, int* count, char macs[MAX_BLE_ADDRESSES][18]
       return false;
     }
 
-    strncpy(macs[macIdx], start, 17);
-    macs[macIdx][17] = '\0';
+    strncpy(bleMacs[macIdx], start, 17);
+    bleMacs[macIdx][17] = '\0';
     macIdx++;
 
     if (comma == NULL) {
@@ -362,17 +373,17 @@ bool parseBleListCommand(char* cmd, int* count, char macs[MAX_BLE_ADDRESSES][18]
   return true;
 }
 
-void saveBleListConfig(char macs[MAX_BLE_ADDRESSES][18]) {
+void saveBleListConfig() {
   preferences.begin(NVS_BLE_NAMESPACE, false);
   for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
     char key[16];
     snprintf(key, sizeof(key), "mac_%d", i);
-    preferences.putString(key, macs[i]);
+    preferences.putString(key, bleMacs[i]);
   }
   preferences.end();
 }
 
-bool loadBleListConfig(char macs[MAX_BLE_ADDRESSES][18]) {
+bool loadBleListConfig() {
   preferences.begin(NVS_BLE_NAMESPACE, true);
   bool hasAny = false;
   for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
@@ -380,22 +391,22 @@ bool loadBleListConfig(char macs[MAX_BLE_ADDRESSES][18]) {
     snprintf(key, sizeof(key), "mac_%d", i);
     String value = preferences.getString(key, "");
     if (value.length() > 0) {
-      strncpy(macs[i], value.c_str(), 17);
-      macs[i][17] = '\0';
+      strncpy(bleMacs[i], value.c_str(), 17);
+      bleMacs[i][17] = '\0';
       hasAny = true;
     } else {
-      macs[i][0] = '\0';
+      bleMacs[i][0] = '\0';
     }
   }
   preferences.end();
   return hasAny;
 }
 
-void sendBleListReport(int count, char macs[10][18]) {
+void sendBleListReport(int count) {
   MySerial.printf("+BLE_LST:%d", count);
   for (int i = 0; i < count; ++i) {
-    if (macs[i][0] != '\0') {
-      MySerial.printf(",\"%s\"", macs[i]);
+    if (bleMacs[i][0] != '\0') {
+      MySerial.printf(",\"%s\"", bleMacs[i]);
     } else {
       MySerial.print(",\"\"");
     }
@@ -657,13 +668,12 @@ void processCommand(char* cmd) {
     }
   } else if (strncmp(cmd, "AT+BLE_LST=", 11) == 0) {
     //保存BLE列表
-    int count = 0;
-    char macs[MAX_BLE_ADDRESSES][18] = {{0}};
-    if (parseBleListCommand(cmd, &count, macs)) {
-      saveBleListConfig(macs);
-      sendBleListReport(count, macs);
+    if (parseBleListCommand(cmd, &bleCount)) {
+      saveBleListConfig();
+      sendBleListReport(bleCount);
       MySerial.println("OK");
     } else {
+      bleCount = 0;
       MySerial.println("ERROR");
     }
   } else if (strncmp(cmd, "AT+UART_DEF=", 12) == 0) {
@@ -778,16 +788,14 @@ void CommandTask(void* pvParameters) {
     sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity, uartAddr);
   }
 
-  char macs[MAX_BLE_ADDRESSES][18] = {{0}};
-  int count = 0;
-  if (loadBleListConfig(macs)) {
+  if (loadBleListConfig()) {
     for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
-      if (macs[i][0] != '\0') {
-        count++;
+      if (bleMacs[i][0] != '\0') {
+        bleCount++;
       }
     }
-    if (count > 0) {
-      sendBleListReport(count, macs);
+    if (bleCount > 0) {
+      sendBleListReport(bleCount);
     }
   }
 
@@ -873,9 +881,19 @@ void ATCWState() {
                   rssi,
                   ip.c_str());
 }
-
+void sendBLESensorReport() {
+  MySerial.println("+BLESENSOR:1");
+}
 void scanMode() {
   MySerial.println("+SCANMODE:1");
+}
+int selectBleDevice(const char* addr) {
+  for (int i = 0; i < bleCount; ++i) {
+    if (bleMacs[i][0] != '\0' && strcmp(bleMacs[i], addr) == 0) {
+      return i;// 找到匹配的设备，返回索引
+    }
+  }
+  return -1; // 未找到匹配的设备，返回-1
 }
 void setupEntry() {
   Serial.begin(115200);
