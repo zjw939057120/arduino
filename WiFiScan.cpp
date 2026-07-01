@@ -195,7 +195,18 @@ bool parseBLECommand(char* cmd, int* mode, int* duration, int* filter_type, char
         
         // 将 filter_param 拷贝到目标缓冲区，防止缓冲区溢出
         strncpy(filter_param, token, FILTER_PARAM_MAX_LEN - 1);
-        filter_param[FILTER_PARAM_MAX_LEN - 1] = '\0'; 
+        filter_param[FILTER_PARAM_MAX_LEN - 1] = '\0';
+        // 去除首尾双引号
+        size_t len = strlen(filter_param);
+        if (len >= 2 && filter_param[0] == '"' && filter_param[len - 1] == '"') {
+          // 将结束符前移，去掉尾部双引号
+          filter_param[len - 1] = '\0';
+          // 将指针整体后移一位，去掉首部双引号
+          // 注意：如果 filter_param 是动态分配的内存，直接修改指针会导致内存泄漏
+          // 如果 filter_param 是固定数组，不能直接修改指针，需要用 memmove
+          memmove(filter_param, filter_param + 1, len - 1);
+        }
+        
     }
 
     // 6. 参数合法性校验
@@ -366,6 +377,12 @@ void sendBleListReport(int count, char macs[10][18]) {
 
 uint8_t disconnected_num = 0; // 断线次数
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  // wifi状态
+  wl_status_t status = WiFi.status();
+  String ssid = WiFi.SSID();
+  int8_t rssi = WiFi.RSSI();
+  String ip = WiFi.localIP().toString();
+
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
       // 重置断线次数
@@ -423,19 +440,16 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     default:
       break;
   }
-  //wifi状态
-  String currentSsid = WiFi.SSID();
-  if (currentSsid.length() == 0 && pendingSSID[0] != '\0') {
-    currentSsid = String(pendingSSID);
+
+  if (ssid.length() == 0 && pendingSSID[0] != '\0') {
+    ssid = String(pendingSSID);
   }
   // Map esp WiFi status to +CWSTATE codes (0-4) per protocol
-  auto computeCWState = []() -> int {
-    wl_status_t status = WiFi.status();
+  auto computeCWState = [](wl_status_t status, const String& ip) -> int {
     if (status == WL_IDLE_STATUS) {
       return 0; // 尚未进行任何 Wi-Fi 连接
     }
     if (status == WL_CONNECTED) {
-      String ip = WiFi.localIP().toString();
       if (ip != "0.0.0.0") return 2; // 已获取到 IPv4 地址
       return 1; // 已连接上 AP，但尚未获取到 IPv4
     }
@@ -445,8 +459,8 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     return 3; // 正在进行连接或重连
   };
 
-  int cwState = computeCWState();
-  MySerial.printf("+CWSTATE:%d,\"%s\"\r\n", cwState, currentSsid.c_str());
+  int cwState = computeCWState(status, ip);
+  MySerial.printf("+CWSTATE:%d,\"%s\",%d,\"%s\"\r\n", cwState, ssid.c_str(), rssi, ip.c_str());
 }
 
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
