@@ -27,10 +27,15 @@ void DoBLEScan(int duration);
 bool autoConnect(char* ssid, char* pwd);
 void DoWiFiConnect(char* ssid, char* pwd);
 void processCommand(char* cmd);
+void DebugSerialTask(void* pvParameters);
+void MySerialTask(void* pvParameters);
+void CommandTask(void* pvParameters);
+void BLESensorTask(void* pvParameters);
 bool parseBleListCommand(char* cmd, int* count, char macs[MAX_BLE_ADDRESSES][18]);
 void saveBleListConfig(char macs[MAX_BLE_ADDRESSES][18]);
 bool loadBleListConfig(char macs[MAX_BLE_ADDRESSES][18]);
 void sendBleListReport(int count, char macs[MAX_BLE_ADDRESSES][18]);
 int getATCWState();
 void ATCWState();
+void scanMode();
 #endif // WIFI_SCAN_H

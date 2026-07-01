@@ -30,9 +30,9 @@ static char pendingSSID[33] = "";
 static char pendingPWD[65] = "";
 
 int filter_type = 0;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
-char filter_param[FILTER_PARAM_MAX_LEN];// filter parameter
+char filter_param[FILTER_PARAM_MAX_LEN] = "0000ffe0";// filter parameter
 
-class MyBLECallback : public BLEAdvertisedDeviceCallbacks {
+class MyBLEScanCallback : public BLEAdvertisedDeviceCallbacks {
 public:
   void onResult(BLEAdvertisedDevice device) {
     String addr = device.getAddress().toString();
@@ -77,8 +77,36 @@ public:
   }
 };
 
-MyBLECallback bleCallback;
+class MyBLESensorCallback : public BLEAdvertisedDeviceCallbacks {
+public:
+  void onResult(BLEAdvertisedDevice device) {
+    String addr = device.getAddress().toString();
+    addr.toUpperCase();
 
+    uint8_t* advData = device.getPayload();
+    size_t advLen = device.getPayloadLength();
+    char advDataStr[512] = "";
+    for (size_t i = 0; i < advLen && i < 255; i++) {
+      sprintf(advDataStr + i * 2, "%02X", advData[i]);
+    }
+    String serviceUUID = device.haveServiceUUID() ? device.getServiceUUID(0).toString() : "";
+
+    bool passFilter = strcmp(filter_param, serviceUUID.c_str()) <= 0;
+    if (passFilter)
+    {
+      int8_t rssi = WiFi.RSSI();
+      MySerial.printf("+SENSOR:\"%s\",%s,%d\r\n", addr.c_str(), advDataStr, rssi);
+    }
+  }
+};
+
+//是否蓝牙扫描中
+bool is_ble_scanning = false;
+
+// BLE扫描回调
+MyBLEScanCallback bleScanCallback;
+// BLE传感器回调
+MyBLESensorCallback bleSensorCallback;
 int getEcnValue(wifi_auth_mode_t encryptionType) {
   switch (encryptionType) {
     case WIFI_AUTH_OPEN:            return 0;
@@ -435,7 +463,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       break;
   }
 
-  ATCWState();
+  ATCWState();// 获取当前 Wi-Fi 状态
 }
 
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
@@ -527,12 +555,16 @@ void DoBLEScan(int duration) {
     MySerial.println("ERROR");
     return;
   }
-
+  is_ble_scanning = true;
+  pBLEScan->stop();
+  // 设置扫描回调函数
+  pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->clearResults();
   pBLEScan->start(duration, false);
 
-  MySerial.println("OK");
+  //等待扫描完成
   MySerial.println("+BLESCANDONE");
+  is_ble_scanning = false;
 }
 
 bool autoConnect(char* ssid, char* pwd) {
@@ -658,7 +690,8 @@ void processCommand(char* cmd) {
   }
 }
 
-void SerialTask(void* pvParameters) {
+// FreeRTOS任务函数，用于处理串口输入并将命令发送到队列
+void DebugSerialTask(void* pvParameters) {
   char localBuffer[SERIAL_BUFFER_SIZE];
   int localIndex = 0;
   CommandMessage msg;
@@ -695,6 +728,7 @@ void SerialTask(void* pvParameters) {
   }
 }
 
+// FreeRTOS任务函数，用于处理MySerial输入并将命令发送到队列
 void MySerialTask(void* pvParameters) {
   char localBuffer[SERIAL_BUFFER_SIZE];
   int localIndex = 0;
@@ -732,6 +766,7 @@ void MySerialTask(void* pvParameters) {
   }
 }
 
+// FreeRTOS任务函数，用于从队列中接收命令并处理
 void CommandTask(void* pvParameters) {
   int uartBaud = 115200;
   int uartDataBits = 8;
@@ -768,6 +803,20 @@ void CommandTask(void* pvParameters) {
     if (xQueueReceive(commandQueue, &msg, portMAX_DELAY) == pdTRUE) {
       processCommand(msg.cmd);
     }
+  }
+}
+
+// FreeRTOS任务函数，用于处理传感器数据
+void BLESensorTask(void* pvParameters) {
+  while (true) {
+    vTaskDelay(10 * 1000 / portTICK_PERIOD_MS); // 延迟10秒后开始处理传感器数据
+    if(is_ble_scanning) continue; // 如果正在扫描BLE设备，则跳过本次循环
+    pBLEScan->stop();
+    // 设置回调函数
+    pBLEScan->setAdvertisedDeviceCallbacks(&bleSensorCallback);
+    pBLEScan->clearResults();
+    pBLEScan->start(5, false); // 开始扫描5秒
+    // 等待扫描完成
   }
 }
 
@@ -825,6 +874,9 @@ void ATCWState() {
                   ip.c_str());
 }
 
+void scanMode() {
+  MySerial.println("+SCANMODE:1");
+}
 void setupEntry() {
   Serial.begin(115200);
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
@@ -849,7 +901,7 @@ void setupEntry() {
   
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(&bleCallback);
+  pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
@@ -862,8 +914,9 @@ void setupEntry() {
   if (commandQueue == NULL) {
     MySerial.println("ERROR: command queue create failed");
   } else {
-    xTaskCreate(SerialTask, "SerialTask", 4096, NULL, 1, NULL);
+    xTaskCreate(DebugSerialTask, "DebugSerialTask", 4096, NULL, 1, NULL);
     xTaskCreate(MySerialTask, "MySerialTask", 4096, NULL, 1, NULL);
+    xTaskCreate(BLESensorTask, "BLESensorTask", 4096, NULL, 1, NULL);
     xTaskCreate(CommandTask, "CommandTask", 8192, NULL, 1, NULL);
   }
 }
