@@ -377,12 +377,6 @@ void sendBleListReport(int count, char macs[10][18]) {
 
 uint8_t disconnected_num = 0; // 断线次数
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
-  // wifi状态
-  wl_status_t status = WiFi.status();
-  String ssid = WiFi.SSID();
-  int8_t rssi = WiFi.RSSI();
-  String ip = WiFi.localIP().toString();
-
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
       // 重置断线次数
@@ -392,8 +386,8 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       MySerial.println("WIFI CONNECTED");
       if (pendingSSID[0] != '\0') {
         saveWiFiConfig(pendingSSID, pendingPWD);
-        // pendingSSID[0] = '\0';
-        // pendingPWD[0] = '\0';
+        pendingSSID[0] = '\0';
+        pendingPWD[0] = '\0';
       }
       break;
 
@@ -441,26 +435,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       break;
   }
 
-  if (ssid.length() == 0 && pendingSSID[0] != '\0') {
-    ssid = String(pendingSSID);
-  }
-  // Map esp WiFi status to +CWSTATE codes (0-4) per protocol
-  auto computeCWState = [](wl_status_t status, const String& ip) -> int {
-    if (status == WL_IDLE_STATUS) {
-      return 0; // 尚未进行任何 Wi-Fi 连接
-    }
-    if (status == WL_CONNECTED) {
-      if (ip != "0.0.0.0") return 2; // 已获取到 IPv4 地址
-      return 1; // 已连接上 AP，但尚未获取到 IPv4
-    }
-    if (status == WL_DISCONNECTED || status == WL_CONNECTION_LOST || status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
-      return 4; // 处于断开状态
-    }
-    return 3; // 正在进行连接或重连
-  };
-
-  int cwState = computeCWState(status, ip);
-  MySerial.printf("+CWSTATE:%d,\"%s\",%d,\"%s\"\r\n", cwState, ssid.c_str(), rssi, ip.c_str());
+  ATCWState();
 }
 
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
@@ -649,6 +624,7 @@ void processCommand(char* cmd) {
       MySerial.println("ERROR");
     }
   } else if (strncmp(cmd, "AT+BLE_LST=", 11) == 0) {
+    //保存BLE列表
     int count = 0;
     char macs[MAX_BLE_ADDRESSES][18] = {{0}};
     if (parseBleListCommand(cmd, &count, macs)) {
@@ -673,6 +649,9 @@ void processCommand(char* cmd) {
     } else {
       MySerial.println("ERROR");
     }
+  } else if (strcmp(cmd, "AT+CWSTATE?") == 0) {
+    // 获取WiFi状态
+    ATCWState();
   } else {
     // 无效指令
     return;
@@ -792,6 +771,59 @@ void CommandTask(void* pvParameters) {
   }
 }
 
+// 获取符合 ESP-AT 协议规范的 Wi-Fi 状态码 (0-4)
+int getATCWState() {
+    wl_status_t status = WiFi.status();
+    
+    // 1. 处理“已连接”状态（需要进一步判断 IP）
+    if (status == WL_CONNECTED) {
+        // 直接获取底层 IP 的原始 32 位数值，避免 String 内存开销
+        uint32_t ipRaw = WiFi.localIP(); 
+        
+        // 如果 IP 不为 0，说明已获取到 IPv4 地址 -> 状态 2
+        if (ipRaw != 0) {
+            return 2; 
+        }
+        // IP 为 0，说明已连接上 AP 但尚未获取 IP -> 状态 1
+        return 1; 
+    }
+    
+    // 2. 处理“未初始化/空闲”状态 -> 状态 0
+    if (status == WL_IDLE_STATUS) {
+        return 0; 
+    }
+    
+    // 3. 处理“正在连接”状态 -> 状态 3
+    // 底层枚举中没有 WL_CONNECTING，WL_SCAN_COMPLETED 代表扫描完成准备连接
+    if (status == WL_SCAN_COMPLETED) {
+        return 3; 
+    }
+    
+    // 4. 处理“断开/失败”状态 -> 状态 4
+    // 根据底层枚举，精确匹配所有断开或失败的情况
+    if (status == WL_DISCONNECTED || 
+        status == WL_CONNECTION_LOST || 
+        status == WL_CONNECT_FAILED || 
+        status == WL_NO_SSID_AVAIL) {
+        return 4; 
+    }
+    
+    // 兜底：对于其他未知状态（如 WL_NO_SHIELD, WL_STOPPED），默认归类为断开状态
+    return 4; 
+}
+
+void ATCWState() {
+  // wifi状态
+  int cwState = getATCWState();
+  String ssid = WiFi.SSID();
+  int8_t rssi = WiFi.RSSI();
+  String ip = WiFi.localIP().toString();
+  MySerial.printf("+CWSTATE:%d,\"%s\",%d,\"%s\"\r\n",
+                  cwState,
+                  ssid.c_str(),
+                  rssi,
+                  ip.c_str());
+}
 
 void setupEntry() {
   Serial.begin(115200);

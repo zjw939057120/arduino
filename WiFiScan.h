@@ -31,4 +31,6 @@ bool parseBleListCommand(char* cmd, int* count, char macs[MAX_BLE_ADDRESSES][18]
 void saveBleListConfig(char macs[MAX_BLE_ADDRESSES][18]);
 bool loadBleListConfig(char macs[MAX_BLE_ADDRESSES][18]);
 void sendBleListReport(int count, char macs[MAX_BLE_ADDRESSES][18]);
+int getATCWState();
+void ATCWState();
 #endif // WIFI_SCAN_H
