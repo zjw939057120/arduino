@@ -36,8 +36,11 @@ char bleMacs[MAX_BLE_ADDRESSES][18] = {{0}};
 // BLE device count
 int bleCount = 0;
 // BLE sensor data buffer
-#define BLE_SENSOR_DATA_LEN MAX_BLE_ADDRESSES * 4
-uint8_t bleSensorData[BLE_SENSOR_DATA_LEN] = {0};
+struct BLESensorData {
+  uint16_t temp;
+  uint16_t hum;
+};
+BLESensorData bleSensorData[MAX_BLE_ADDRESSES] = {0};
 
 #define FILTER_PARAM_MAX_LEN 20
 int filter_type = 3;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
@@ -107,10 +110,10 @@ public:
     if (index == -1)
       return;
     int8_t rssi = WiFi.RSSI();
-    //温度数据
-    memcpy(&bleSensorData[index * 4], &advData[advLen - 4], 2);
-    //湿度数据
-    memcpy(&bleSensorData[index * 4 + 2], &advData[advLen - 2], 2);
+    // 温度数据
+    bleSensorData[index].temp = ((uint8_t)advData[advLen - 3] << 8) | (uint8_t)advData[advLen - 4];
+    // 湿度数据
+    bleSensorData[index].hum = ((uint8_t)advData[advLen - 1] << 8) | (uint8_t)advData[advLen - 2];
     // char advDataStr[255] = "";
     // for (size_t i = 0; i < advLen && i < 255; i++) {
     //   sprintf(advDataStr + i * 2, "%02X", advData[i]);
@@ -575,6 +578,7 @@ void DoBLEScan(int duration) {
     return;
   }
   is_ble_scanning = true;
+  pBLEScan->stop();
   // 设置扫描回调函数
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->clearResults();
@@ -832,15 +836,9 @@ void BLESensorTask(void* pvParameters) {
     pBLEScan->clearResults();
     pBLEScan->start(5, false); // 开始扫描5秒
     // 等待扫描完成
-    uint8_t* advData = bleSensorData;
-    size_t advLen = BLE_SENSOR_DATA_LEN;  
-    char advDataStr[255] = "";
-    for (size_t i = 0; i < advLen && i < 255; i++) {
-      sprintf(advDataStr + i * 2, "%02X", advData[i]);
-    }
     uint8_t cwState = getATCWState();
     int8_t rssi = WiFi.RSSI();
-    MySerial.printf("+SENSOR:%s,%d,%d\r\n", advDataStr, cwState, rssi);
+    Serial.printf("+SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum,cwState, rssi);
   }
 }
 
