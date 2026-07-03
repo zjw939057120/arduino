@@ -4,8 +4,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
-#define MAX_BLE_ADDRESSES 12
-#define FILTER_PARAM_MAX_LEN 32
 
 void setupEntry();
 void loopEntry();
@@ -35,8 +33,9 @@ bool parseBleListCommand(char* cmd, int* count);
 void saveBleListConfig();
 bool loadBleListConfig();
 void sendBleListReport(int count);
-int getATCWState();
+uint8_t getATCWState();
 void ATCWState();
 void scanMode();
-int selectBleDevice(const char* addr);
+int findBleDevice(const char* addr);
+
 #endif // WIFI_SCAN_H

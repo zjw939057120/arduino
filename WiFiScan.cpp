@@ -26,13 +26,21 @@ int bufferIndex = 0;
 Preferences preferences;
 BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
+// Pending WiFi SSID and password
 static char pendingSSID[33] = "";
 static char pendingPWD[65] = "";
+
+#define MAX_BLE_ADDRESSES 10
+// BLE device MAC addresses
 char bleMacs[MAX_BLE_ADDRESSES][18] = {{0}};
+// BLE device count
 int bleCount = 0;
+// BLE sensor data buffer
+#define BLE_SENSOR_DATA_LEN MAX_BLE_ADDRESSES * 4
+uint8_t bleSensorData[BLE_SENSOR_DATA_LEN] = {0};
 
-
-int filter_type = 0;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
+#define FILTER_PARAM_MAX_LEN 20
+int filter_type = 3;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
 char filter_param[FILTER_PARAM_MAX_LEN] = "0000ffe0";// filter parameter
 
 class MyBLEScanCallback : public BLEAdvertisedDeviceCallbacks {
@@ -44,10 +52,6 @@ public:
 
     uint8_t* advData = device.getPayload();
     size_t advLen = device.getPayloadLength();
-    char advDataStr[512] = "";
-    for (size_t i = 0; i < advLen && i < 255; i++) {
-      sprintf(advDataStr + i * 2, "%02X", advData[i]);
-    }
 
     String name = device.haveName() ? device.getName() : "";
     String serviceData = device.haveServiceData() ? device.getServiceData(0) : "";
@@ -75,6 +79,10 @@ public:
     break;
   }
   if (passFilter) {
+    char advDataStr[255] = "";
+    for (size_t i = 0; i < advLen && i < 255; i++) {
+      sprintf(advDataStr + i * 2, "%02X", advData[i]);
+    }
     MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%s,%d\r\n", addr.c_str(), rssi, advDataStr, serviceData.c_str(), serviceUUID.c_str(), addrType);
   }
   }
@@ -88,26 +96,26 @@ public:
 
     uint8_t* advData = device.getPayload();
     size_t advLen = device.getPayloadLength();
-    char advDataStr[512] = "";
-    for (size_t i = 0; i < advLen && i < 255; i++) {
-      sprintf(advDataStr + i * 2, "%02X", advData[i]);
-    }
     String serviceUUID = device.haveServiceUUID() ? device.getServiceUUID(0).toString() : "";
 
     bool passFilter = strcmp(filter_param, serviceUUID.c_str()) <= 0;
-    if (passFilter)
-    {
-      int index = selectBleDevice(addr.c_str());
-      if (index == -1) {
-        return;
-      }
-      int8_t rssi = WiFi.RSSI();
-        //大端序温度数据
-      uint16_t temp = ((uint8_t)advData[advLen - 3] << 8) | (uint8_t)advData[advLen - 4];
-      // 大端序湿度数据
-      uint16_t hum = ((uint8_t)advData[advLen - 1] << 8) | (uint8_t)advData[advLen - 2];
-      MySerial.printf("+SENSOR:%d,\"%s\",%s,%d,%d,%d\r\n", index,addr.c_str(), advDataStr, rssi, temp, hum);
-    }
+    // 过滤不匹配的设备
+    if (!passFilter)
+      return;
+      //查找设备
+    int index = findBleDevice(addr.c_str());
+    if (index == -1)
+      return;
+    int8_t rssi = WiFi.RSSI();
+    //温度数据
+    memcpy(&bleSensorData[index * 4], &advData[advLen - 4], 2);
+    //湿度数据
+    memcpy(&bleSensorData[index * 4 + 2], &advData[advLen - 2], 2);
+    // char advDataStr[255] = "";
+    // for (size_t i = 0; i < advLen && i < 255; i++) {
+    //   sprintf(advDataStr + i * 2, "%02X", advData[i]);
+    // }
+    // Serial.printf("+SENSOR:%d,\"%s\",%s,%d\r\n", index, addr.c_str(), advDataStr, rssi);
   }
 };
 
@@ -567,7 +575,6 @@ void DoBLEScan(int duration) {
     return;
   }
   is_ble_scanning = true;
-  pBLEScan->stop();
   // 设置扫描回调函数
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->clearResults();
@@ -668,12 +675,13 @@ void processCommand(char* cmd) {
     }
   } else if (strncmp(cmd, "AT+BLE_LST=", 11) == 0) {
     //保存BLE列表
-    if (parseBleListCommand(cmd, &bleCount)) {
+    int count = 0;
+    if (parseBleListCommand(cmd, &count)) {
       saveBleListConfig();
-      sendBleListReport(bleCount);
+      sendBleListReport(count);
+       bleCount = count;
       MySerial.println("OK");
     } else {
-      bleCount = 0;
       MySerial.println("ERROR");
     }
   } else if (strncmp(cmd, "AT+UART_DEF=", 12) == 0) {
@@ -817,19 +825,27 @@ void CommandTask(void* pvParameters) {
 // FreeRTOS任务函数，用于处理传感器数据
 void BLESensorTask(void* pvParameters) {
   while (true) {
-    vTaskDelay(10 * 1000 / portTICK_PERIOD_MS); // 延迟10秒后开始处理传感器数据
+    vTaskDelay(7 * 1000 / portTICK_PERIOD_MS); // 延迟7秒后开始处理传感器数据
     if(is_ble_scanning) continue; // 如果正在扫描BLE设备，则跳过本次循环
-    pBLEScan->stop();
     // 设置回调函数
     pBLEScan->setAdvertisedDeviceCallbacks(&bleSensorCallback);
     pBLEScan->clearResults();
     pBLEScan->start(5, false); // 开始扫描5秒
     // 等待扫描完成
+    uint8_t* advData = bleSensorData;
+    size_t advLen = BLE_SENSOR_DATA_LEN;  
+    char advDataStr[255] = "";
+    for (size_t i = 0; i < advLen && i < 255; i++) {
+      sprintf(advDataStr + i * 2, "%02X", advData[i]);
+    }
+    uint8_t cwState = getATCWState();
+    int8_t rssi = WiFi.RSSI();
+    MySerial.printf("+SENSOR:%s,%d,%d\r\n", advDataStr, cwState, rssi);
   }
 }
 
 // 获取符合 ESP-AT 协议规范的 Wi-Fi 状态码 (0-4)
-int getATCWState() {
+uint8_t getATCWState() {
     wl_status_t status = WiFi.status();
     
     // 1. 处理“已连接”状态（需要进一步判断 IP）
@@ -871,7 +887,7 @@ int getATCWState() {
 
 void ATCWState() {
   // wifi状态
-  int cwState = getATCWState();
+  uint8_t cwState = getATCWState();
   String ssid = WiFi.SSID();
   int8_t rssi = WiFi.RSSI();
   String ip = WiFi.localIP().toString();
@@ -887,7 +903,7 @@ void sendBLESensorReport() {
 void scanMode() {
   MySerial.println("+SCANMODE:1");
 }
-int selectBleDevice(const char* addr) {
+int findBleDevice(const char* addr) {
   for (int i = 0; i < bleCount; ++i) {
     if (bleMacs[i][0] != '\0' && strcmp(bleMacs[i], addr) == 0) {
       return i;// 找到匹配的设备，返回索引
@@ -895,6 +911,7 @@ int selectBleDevice(const char* addr) {
   }
   return -1; // 未找到匹配的设备，返回-1
 }
+
 void setupEntry() {
   Serial.begin(115200);
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
