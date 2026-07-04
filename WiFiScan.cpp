@@ -7,6 +7,7 @@
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
+#include <ModbusTCP.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -790,6 +791,9 @@ void MySerialTask(void* pvParameters) {
 
 // FreeRTOS任务函数，用于从队列中接收命令并处理
 void CommandTask(void* pvParameters) {
+  // 启动Modbus TCP服务器
+  ServerStart();
+
   int uartBaud = 115200;
   int uartDataBits = 8;
   int uartStopBits = 1;
@@ -838,7 +842,14 @@ void BLESensorTask(void* pvParameters) {
     // 等待扫描完成
     uint8_t cwState = getATCWState();
     int8_t rssi = WiFi.RSSI();
-    Serial.printf("+SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum,cwState, rssi);
+    MySerial.printf("+SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum,cwState, rssi);
+  }
+}
+
+// FreeRTOS任务函数，用于处理Modbus TCP连接
+void ModbusTCPTask(void *pvParameters) {
+  while (true) {
+    ModbusTCPHandler();
   }
 }
 
@@ -931,7 +942,7 @@ void setupEntry() {
 
   vTaskDelay(1000 / portTICK_PERIOD_MS);
   MySerial.println("ready");
-  
+
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
@@ -950,6 +961,7 @@ void setupEntry() {
     xTaskCreate(DebugSerialTask, "DebugSerialTask", 4096, NULL, 1, NULL);
     xTaskCreate(MySerialTask, "MySerialTask", 4096, NULL, 1, NULL);
     xTaskCreate(BLESensorTask, "BLESensorTask", 4096, NULL, 1, NULL);
+    xTaskCreate(ModbusTCPTask, "ModbusTCPTask", 4096, NULL, 1, NULL);
     xTaskCreate(CommandTask, "CommandTask", 8192, NULL, 1, NULL);
   }
 }
