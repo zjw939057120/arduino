@@ -405,8 +405,7 @@ void saveBleListConfig() {
 
 bool loadBleListConfig() {
   preferences.begin(NVS_BLE_NAMESPACE, true);
-  int bleCount = preferences.getInt("count", 0);
-  bool hasAny = false;
+  bleCount = preferences.getInt("count", 0);
   for (int i = 0; i < bleCount; ++i) {
     char key[16];
     snprintf(key, sizeof(key), "mac_%d", i);
@@ -414,13 +413,10 @@ bool loadBleListConfig() {
     if (value.length() > 0) {
       strncpy(bleMacs[i], value.c_str(), 17);
       bleMacs[i][17] = '\0';
-      hasAny = true;
-    } else {
-      bleMacs[i][0] = '\0';
     }
   }
   preferences.end();
-  return hasAny;
+  return bleCount > 0;
 }
 
 void sendBleListReport(int count) {
