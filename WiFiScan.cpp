@@ -7,10 +7,11 @@
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
-#include <ModbusTCP.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include "ModbusServer.h"
+#include "HttpServer.h"
 
 #define SERIAL_BUFFER_SIZE 255
 #define NVS_NAMESPACE "wifi_config"
@@ -849,11 +850,20 @@ void BLESensorTask(void* pvParameters) {
 }
 
 // FreeRTOS任务函数，用于处理Modbus TCP连接
-void ModbusTCPTask(void *pvParameters) {
+void ModbusServerTask(void *pvParameters) {
   while (true) {
-    ModbusTCPHandler();
+    ModbusServerHandler();
   }
 }
+
+// FreeRTOS任务函数，用于处理HTTP连接
+void HttpServerTask(void *pvParameters) {
+  while (true) {
+    HttpServerHandler();
+  }
+}
+
+
 
 // 获取符合 ESP-AT 协议规范的 Wi-Fi 状态码 (0-4)
 uint8_t getATCWState() {
@@ -956,11 +966,12 @@ void setupEntry() {
   if (commandQueue == NULL) {
     Serial.println("ERROR: queue create failed");
   } else {
-    xTaskCreate(DebugSerialTask, "DebugSerialTask", 4096, NULL, 1, NULL);
-    xTaskCreate(MySerialTask, "MySerialTask", 4096, NULL, 1, NULL);
-    xTaskCreate(BLESensorTask, "BLESensorTask", 4096, NULL, 1, NULL);
-    xTaskCreate(ModbusTCPTask, "ModbusTCPTask", 4096, NULL, 1, NULL);
-    xTaskCreate(CommandTask, "CommandTask", 8192, NULL, 1, NULL);
+    xTaskCreate(DebugSerialTask, "DebugSerial", 4096, NULL, 1, NULL);
+    xTaskCreate(MySerialTask, "MySerial", 4096, NULL, 1, NULL);
+    xTaskCreate(BLESensorTask, "BLESensor", 4096, NULL, 1, NULL);
+    xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, NULL);
+    xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, NULL);
+    xTaskCreate(CommandTask, "Command", 8192, NULL, 1, NULL);
   }
 }
 

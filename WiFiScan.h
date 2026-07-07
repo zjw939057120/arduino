@@ -29,6 +29,8 @@ void DebugSerialTask(void* pvParameters);
 void MySerialTask(void* pvParameters);
 void CommandTask(void* pvParameters);
 void BLESensorTask(void* pvParameters);
+void ModbusServerTask(void* pvParameters);
+void HttpServerTask(void* pvParameters);
 bool parseBleListCommand(char* cmd, int* count);
 void saveBleListConfig();
 bool loadBleListConfig();

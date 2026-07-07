@@ -1,20 +1,10 @@
-#include "ModbusTCP.h"
-#include <ESPmDNS.h>
+#include "HttpServer.h"
+#include "ModbusServer.h"
 
-#define MODBUS_TCP_PORT 502
-NetworkServer server;
+NetworkServer httpServer;
 
-void ServerStart() {
-  // 启动mDNS服务
-  MDNS.begin("modbus");
-  MDNS.addService("modbus", "tcp", MODBUS_TCP_PORT);
-  // 启动Modbus TCP服务器
-  server.begin(MODBUS_TCP_PORT);
-  Serial.println("Modbus TCP server started");
-}
-
-void ModbusTCPHandler() {
-  NetworkClient client = server.accept();  // listen for incoming clients
+void HttpServerHandler() {
+  NetworkClient client = httpServer.accept();  // listen for incoming clients
 
   if (client) {                     // if you get a client,
     Serial.println("New Client.");  // print a message out the serial port
