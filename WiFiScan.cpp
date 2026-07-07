@@ -12,7 +12,7 @@
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
-#define SERIAL_BUFFER_SIZE 128
+#define SERIAL_BUFFER_SIZE 255
 #define NVS_NAMESPACE "wifi_config"
 #define NVS_UART_NAMESPACE "uart_config"
 #define NVS_BLE_NAMESPACE "ble_config"
@@ -87,7 +87,8 @@ public:
     for (size_t i = 0; i < advLen && i < 255; i++) {
       sprintf(advDataStr + i * 2, "%02X", advData[i]);
     }
-    MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%s,%d\r\n", addr.c_str(), rssi, advDataStr, serviceData.c_str(), serviceUUID.c_str(), addrType);
+    // MySerial.printf("+BLESCAN:\"%s\",%d,%s,%s,%s,%d\r\n", addr.c_str(), rssi, advDataStr, serviceData.c_str(), serviceUUID.c_str(), addrType);
+    MySerial.printf("+BLESCAN:\"%s\",%d,%s,%d\r\n", addr.c_str(), rssi, advDataStr, addrType);
   }
   }
 };
@@ -387,18 +388,26 @@ bool parseBleListCommand(char* cmd, int* count) {
 
 void saveBleListConfig() {
   preferences.begin(NVS_BLE_NAMESPACE, false);
-  for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
+  if (preferences.getInt("count", 0) != bleCount) {
+    preferences.putInt("count", bleCount);
+  }
+  String tmp = "";
+  for (int i = 0; i < bleCount; ++i) {
     char key[16];
     snprintf(key, sizeof(key), "mac_%d", i);
+    tmp = preferences.getString(key, "");
+    if (!tmp.equals(bleMacs[i])) {
     preferences.putString(key, bleMacs[i]);
+    }
   }
   preferences.end();
 }
 
 bool loadBleListConfig() {
   preferences.begin(NVS_BLE_NAMESPACE, true);
+  int bleCount = preferences.getInt("count", 0);
   bool hasAny = false;
-  for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
+  for (int i = 0; i < bleCount; ++i) {
     char key[16];
     snprintf(key, sizeof(key), "mac_%d", i);
     String value = preferences.getString(key, "");
@@ -447,6 +456,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       if (disconnected_num > 5) {
         WiFi.setAutoReconnect(false);
       } else {
+        WiFi.setAutoReconnect(true);
         disconnected_num++;
       }
 
@@ -491,26 +501,31 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
   preferences.begin(NVS_UART_NAMESPACE, false);
-  preferences.putInt("baud", baud);
-  preferences.putInt("data_bits", dataBits);
-  preferences.putInt("stop_bits", stopBits);
-  preferences.putInt("parity", parity);
-  preferences.putInt("flow_control", addr);
+  if (preferences.getInt("baud", 115200) != baud) {
+    preferences.putInt("baud", baud);
+  }
+  if (preferences.getInt("data_bits", 8) != dataBits) {
+    preferences.putInt("data_bits", dataBits);
+  }
+  if (preferences.getInt("stop_bits", 1) != stopBits) {
+    preferences.putInt("stop_bits", stopBits);
+  }
+  if (preferences.getInt("parity", 0) != parity) {
+    preferences.putInt("parity", parity);
+  }
+  if (preferences.getInt("addr", 0) != addr) {
+    preferences.putInt("addr", addr);
+  }
   preferences.end();
 }
 
 bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* addr) {
   preferences.begin(NVS_UART_NAMESPACE, true);
-  if (!preferences.isKey("baud") || !preferences.isKey("data_bits") || !preferences.isKey("stop_bits") || !preferences.isKey("parity")) {
-    preferences.end();
-    return false;
-  }
-
   *baud = preferences.getInt("baud", 115200);
   *dataBits = preferences.getInt("data_bits", 8);
   *stopBits = preferences.getInt("stop_bits", 1);
   *parity = preferences.getInt("parity", 0);
-  *addr = preferences.getInt("flow_control", 0);
+  *addr = preferences.getInt("addr", 0);
   preferences.end();
 
   return true;
@@ -522,8 +537,15 @@ void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int 
 
 void saveWiFiConfig(char* ssid, char* pwd) {
   preferences.begin(NVS_NAMESPACE, false);
-  preferences.putString("ssid", ssid);
-  preferences.putString("pwd", pwd);
+  String tmp = "";
+  tmp = preferences.getString("ssid", "");
+  if (!tmp.equals(ssid)) {
+    preferences.putString("ssid", ssid);
+  }
+  tmp = preferences.getString("pwd", "");
+  if (!tmp.equals(pwd)) {
+    preferences.putString("pwd", pwd);
+  }
   preferences.end();
 }
 
@@ -594,7 +616,6 @@ bool autoConnect(char* ssid, char* pwd) {
   };
 
   for (int i = 0; i < 2; ++i) {
-    WiFi.disconnect();
     WiFi.setMinSecurity(authModes[i]);
     WiFi.begin(ssid, pwd);
 
@@ -632,7 +653,6 @@ void DoWiFiConnect(char* ssid, char* pwd) {
   strncpy(pendingPWD, pwd, sizeof(pendingPWD) - 1);
   pendingPWD[sizeof(pendingPWD) - 1] = '\0';
 
-  WiFi.disconnect();
   // 重置断线次数
   disconnected_num = 0;
   WiFi.setAutoReconnect(true);
@@ -678,25 +698,24 @@ void processCommand(char* cmd) {
     //保存BLE列表
     int count = 0;
     if (parseBleListCommand(cmd, &count)) {
+      bleCount = count;
       saveBleListConfig();
       sendBleListReport(count);
-       bleCount = count;
       MySerial.println("OK");
     } else {
       MySerial.println("ERROR");
     }
   } else if (strncmp(cmd, "AT+UART_DEF=", 12) == 0) {
     //设置串口参数
-    int baud = 0;
-    int dataBits = 0;
-    int stopBits = 0;
+    int baud = 115200;
+    int dataBits = 8;
+    int stopBits = 1;
     int parity = 0;
     int addr = 0;
 
     if (parseUartConfigCommand(cmd, &baud, &dataBits, &stopBits, &parity, &addr)) {
       saveUartConfig(baud, dataBits, stopBits, parity, addr);
       sendUartConfigReport(baud, dataBits, stopBits, parity, addr);
-      MySerial.println("OK");
     } else {
       MySerial.println("ERROR");
     }
@@ -729,7 +748,7 @@ void DebugSerialTask(void* pvParameters) {
           strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
           if (commandQueue != NULL) {
             if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
-              Serial.println("ERROR: command queue full");
+              Serial.println("ERROR: queue full");
             }
           }
           localIndex = 0;
@@ -801,21 +820,13 @@ void CommandTask(void* pvParameters) {
   }
 
   if (loadBleListConfig()) {
-    for (int i = 0; i < MAX_BLE_ADDRESSES; ++i) {
-      if (bleMacs[i][0] != '\0') {
-        bleCount++;
-      }
-    }
     if (bleCount > 0) {
       sendBleListReport(bleCount);
     }
   }
 
-  char ssid[33] = "";
-  char pwd[65] = "";
-
-  if (loadWiFiConfig(ssid, pwd)) {
-    autoConnect(ssid, pwd);
+  if (loadWiFiConfig(pendingSSID, pendingPWD)) {
+    autoConnect(pendingSSID, pendingPWD);
   }
 
   CommandMessage msg;
@@ -932,10 +943,6 @@ void setupEntry() {
   Serial.println(ESP.getEfuseMac());
   Serial.print("ESP32 Chip Model: ");
   Serial.println(ESP.getChipModel());
-  Serial.print("ESP32 Chip Cores: ");
-  Serial.println(ESP.getChipCores());
-
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
   MySerial.println("ready");
 
   BLEDevice::init("");
@@ -951,7 +958,7 @@ void setupEntry() {
 
   commandQueue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(CommandMessage));
   if (commandQueue == NULL) {
-    MySerial.println("ERROR: command queue create failed");
+    Serial.println("ERROR: queue create failed");
   } else {
     xTaskCreate(DebugSerialTask, "DebugSerialTask", 4096, NULL, 1, NULL);
     xTaskCreate(MySerialTask, "MySerialTask", 4096, NULL, 1, NULL);
