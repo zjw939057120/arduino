@@ -123,8 +123,8 @@ public:
   }
 };
 
-//是否蓝牙扫描中
-bool is_ble_scanning = false;
+// BLE扫描锁
+bool ble_scan_lock = false;
 
 // BLE扫描回调
 MyBLEScanCallback bleScanCallback;
@@ -574,20 +574,16 @@ void ScanWiFi() {
 }
 
 void DoBLEScan(int duration) {
-  if (!pBLEScan) {
-    MySerial.println("ERROR");
-    return;
-  }
-  is_ble_scanning = true;
+  ble_scan_lock = true;
   pBLEScan->stop();
+  vTaskDelay(10 / portTICK_PERIOD_MS);
   // 设置扫描回调函数
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
-  pBLEScan->clearResults();
   pBLEScan->start(duration, false);
 
-  //等待扫描完成
+  // 等待扫描完成
   MySerial.println("+BLESCANDONE");
-  is_ble_scanning = false;
+  ble_scan_lock = false;
 }
 
 bool autoConnect(char* ssid, char* pwd) {
@@ -833,11 +829,10 @@ void CommandTask(void* pvParameters) {
 // FreeRTOS任务函数，用于处理传感器数据
 void BLESensorTask(void* pvParameters) {
   while (true) {
-    vTaskDelay(7 * 1000 / portTICK_PERIOD_MS); // 延迟7秒后开始处理传感器数据
-    if(is_ble_scanning) continue; // 如果正在扫描BLE设备，则跳过本次循环
+    vTaskDelay(3000 / portTICK_PERIOD_MS); // 延迟3秒后开始处理传感器数据
+    if (ble_scan_lock) continue; // 如果正在扫描BLE设备，则跳过本次循环
     // 设置回调函数
     pBLEScan->setAdvertisedDeviceCallbacks(&bleSensorCallback);
-    pBLEScan->clearResults();
     pBLEScan->start(5, false); // 开始扫描5秒
     // 等待扫描完成
     uint8_t cwState = getATCWState();
