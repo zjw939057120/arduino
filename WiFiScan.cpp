@@ -112,16 +112,10 @@ public:
     int index = findBleDevice(addr.c_str());
     if (index == -1)
       return;
-    int8_t rssi = WiFi.RSSI();
     // 温度数据
     bleSensorData[index].temp = ((uint8_t)advData[advLen - 3] << 8) | (uint8_t)advData[advLen - 4];
     // 湿度数据
     bleSensorData[index].hum = ((uint8_t)advData[advLen - 1] << 8) | (uint8_t)advData[advLen - 2];
-    // char advDataStr[255] = "";
-    // for (size_t i = 0; i < advLen && i < 255; i++) {
-    //   sprintf(advDataStr + i * 2, "%02X", advData[i]);
-    // }
-    // Serial.printf("+SENSOR:%d,\"%s\",%s,%d\r\n", index, addr.c_str(), advDataStr, rssi);
   }
 };
 
@@ -342,7 +336,10 @@ bool parseBleListCommand(char* cmd, int* count) {
   *comma = '\0';
   *count = atoi(paramStart);
   
-  if (*count <= 0 || *count > MAX_BLE_ADDRESSES) {
+  if (*count == 0) {
+    return true; // 0 表示清空列表
+  }
+  else if (*count < 0 || *count > MAX_BLE_ADDRESSES) {
     return false;
   }
   
@@ -417,7 +414,7 @@ bool loadBleListConfig() {
     }
   }
   preferences.end();
-  return bleCount > 0;
+  return true;
 }
 
 void sendBleListReport(int count) {
@@ -430,6 +427,7 @@ void sendBleListReport(int count) {
     }
   }
   MySerial.println();
+  sendBleSensorData();
 }
 
 uint8_t disconnected_num = 0; // 断线次数
@@ -817,13 +815,7 @@ void CommandTask(void* pvParameters) {
   }
 
   if (loadBleListConfig()) {
-    if (bleCount > 0) {
-      sendBleListReport(bleCount);
-    }
-  }
-
-  if (loadWiFiConfig(pendingSSID, pendingPWD)) {
-    autoConnect(pendingSSID, pendingPWD);
+    sendBleListReport(bleCount);
   }
 
   CommandMessage msg;
@@ -838,14 +830,17 @@ void CommandTask(void* pvParameters) {
 void BLESensorTask(void* pvParameters) {
   while (true) {
     vTaskDelay(3000 / portTICK_PERIOD_MS); // 延迟3秒后开始处理传感器数据
-    if (ble_scan_lock) continue; // 如果正在扫描BLE设备，则跳过本次循环
+    if (bleCount == 0) {
+      continue; // 如果没有配置BLE传感器，则跳过本次循环
+    }
+    else if (ble_scan_lock) {
+      continue; // 如果正在扫描BLE设备，则跳过本次循环
+    }
     // 设置回调函数
     pBLEScan->setAdvertisedDeviceCallbacks(&bleSensorCallback);
     pBLEScan->start(5, false); // 开始扫描5秒
     // 等待扫描完成
-    uint8_t cwState = getATCWState();
-    int8_t rssi = WiFi.RSSI();
-    MySerial.printf("+SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum,cwState, rssi);
+    sendBleSensorData();
   }
 }
 
@@ -931,6 +926,20 @@ int findBleDevice(const char* addr) {
     }
   }
   return -1; // 未找到匹配的设备，返回-1
+}
+
+int sendBleSensorData() {
+  MySerial.flush();
+  // 初始化未检测到的传感器数据为0
+  for (int i = bleCount; i < MAX_BLE_ADDRESSES; i++) {
+    bleSensorData[i].temp = 0;
+    bleSensorData[i].hum = 0;
+  }
+  // 等待扫描完成
+  uint8_t cwState = getATCWState();
+  int8_t rssi = WiFi.RSSI();
+  MySerial.printf("+SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum, cwState, rssi);
+  return bleCount;
 }
 
 void setupEntry() {

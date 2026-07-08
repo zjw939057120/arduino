@@ -39,5 +39,6 @@ uint8_t getATCWState();
 void ATCWState();
 void scanMode();
 int findBleDevice(const char* addr);
+int sendBleSensorData();
 
 #endif // WIFI_SCAN_H
