@@ -40,5 +40,6 @@ void ATCWState();
 void scanMode();
 int findBleDevice(const char* addr);
 int sendBleSensorData();
+bool containsNonASCII(const char* ssid);
 
 #endif // WIFI_SCAN_H

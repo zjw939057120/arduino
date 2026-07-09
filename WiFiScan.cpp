@@ -317,8 +317,8 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
 
   // Validation: ESP32-C3 ranges and requested numeric encoding
   if (*baud < 80 || *baud > 5000000) return false;
-  if (*dataBits < 5 || *dataBits > 8) return false;
-  if (*stopBits < 1 || *stopBits > 3) return false; // 1=1,2=1.5,3=2
+  if (*dataBits < 5 || *dataBits > 9) return false; // 5bit,6bit,7bit,8bit,9bit
+  if (*stopBits < 1 || *stopBits > 3) return false; // 1=1bit,2=1.5bit,3=2bit
   if (*parity < 0 || *parity > 2) return false; // 0=None,1=Odd,2=Even
   if (*addr < 0 || *addr > 255) return false;
 
@@ -573,7 +573,17 @@ void ScanWiFi() {
   if (n == 0) {
     MySerial.println("OK");
   } else {
+    uint8_t sum = 0;
     for (int i = 0; i < n; ++i) {
+      // 过滤非ASCII字符
+      if (containsNonASCII(WiFi.SSID(i).c_str())) {
+        continue;
+      }
+      if (sum > 20) {
+        // 最多扫描20个网络
+        return;
+      }
+      
       char macStr[18];
       formatMacAddress(WiFi.BSSID(i), macStr);
       int ecn = getEcnValue(WiFi.encryptionType(i));
@@ -583,7 +593,8 @@ void ScanWiFi() {
                     WiFi.RSSI(i),
                     macStr,
                     WiFi.channel(i));
-      vTaskDelay(10 / portTICK_PERIOD_MS);
+      MySerial.flush();
+      sum++;
     }
     MySerial.println("OK");
   }
@@ -942,6 +953,17 @@ int sendBleSensorData() {
   return bleCount;
 }
 
+bool containsNonASCII(const char* ssid) {
+  if (ssid == NULL) {
+    return false;
+  }
+  for (int i = 0; ssid[i] != '\0'; i++) {
+    if (ssid[i] < 0x20 || ssid[i] > 0x7E) {
+      return true;
+    }
+  }
+  return false;
+}
 void setupEntry() {
   Serial.begin(115200);
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
