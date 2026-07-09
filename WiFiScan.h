@@ -41,5 +41,6 @@ void scanMode();
 int findBleDevice(const char* addr);
 int sendBleSensorData();
 bool containsNonASCII(const char* ssid);
+void getMacStrAddress(char *macStr);
 
 #endif // WIFI_SCAN_H

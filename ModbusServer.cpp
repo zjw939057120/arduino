@@ -1,17 +1,14 @@
 #include "ModbusServer.h"
 #include <ESPmDNS.h>
+#include "WiFiScan.h"
 
 NetworkServer modbusServer;
 
-void ServerStart() {
-  // 启动mDNS服务
-  MDNS.begin("modbus");
-  MDNS.addService("modbus", "tcp", MODBUS_PORT);
-  MDNS.addService("modbus", "http", HTTP_PORT);
+void ModbusServerStart() {
+  vTaskDelay(1000 / portTICK_PERIOD_MS);
+
   // 启动Modbus TCP服务器
   modbusServer.begin(MODBUS_PORT);
-  // 启动HTTP服务器
-  httpServer.begin(HTTP_PORT);
   Serial.println("Server started");
 }
 

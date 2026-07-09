@@ -5,12 +5,10 @@
 #include "NetworkServer.h"
 
 #define MODBUS_PORT 502
-#define HTTP_PORT 80
 
 extern NetworkServer modbusServer;
-extern NetworkServer httpServer;
 
-void ServerStart();
+void ModbusServerStart();
 
 void ModbusServerHandler();
 

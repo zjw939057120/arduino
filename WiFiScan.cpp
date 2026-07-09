@@ -516,7 +516,7 @@ void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) 
 
 bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* addr) {
   preferences.begin(NVS_UART_NAMESPACE, true);
-  *baud = preferences.getInt("baud", 115200);
+  *baud = preferences.getInt("baud", 9600);
   *dataBits = preferences.getInt("data_bits", 8);
   *stopBits = preferences.getInt("stop_bits", 1);
   *parity = preferences.getInt("parity", 0);
@@ -812,10 +812,7 @@ void MySerialTask(void* pvParameters) {
 
 // FreeRTOS任务函数，用于从队列中接收命令并处理
 void CommandTask(void* pvParameters) {
-  // 启动Modbus TCP服务器
-  ServerStart();
-
-  int uartBaud = 115200;
+  int uartBaud = 9600;
   int uartDataBits = 8;
   int uartStopBits = 1;
   int uartParity = 0;
@@ -857,6 +854,7 @@ void BLESensorTask(void* pvParameters) {
 
 // FreeRTOS任务函数，用于处理Modbus TCP连接
 void ModbusServerTask(void *pvParameters) {
+  ModbusServerStart();
   while (true) {
     ModbusServerHandler();
   }
@@ -864,6 +862,7 @@ void ModbusServerTask(void *pvParameters) {
 
 // FreeRTOS任务函数，用于处理HTTP连接
 void HttpServerTask(void *pvParameters) {
+  HttpServerStart();
   while (true) {
     HttpServerHandler();
   }
@@ -915,14 +914,16 @@ uint8_t getATCWState() {
 void ATCWState() {
   // wifi状态
   uint8_t cwState = getATCWState();
-  String ssid = WiFi.SSID();
-  int8_t rssi = WiFi.RSSI();
-  String ip = WiFi.localIP().toString();
-  MySerial.printf("+CWSTATE:%d,\"%s\",%d,\"%s\"\r\n",
+  MySerial.printf("+CWSTATE:%d,\"%s\",%d,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"\r\n",
                   cwState,
-                  ssid.c_str(),
-                  rssi,
-                  ip.c_str());
+                  WiFi.SSID().c_str(),
+                  WiFi.RSSI(),
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.gatewayIP().toString().c_str(),
+                  WiFi.subnetMask().toString().c_str(),
+                  WiFi.macAddress().c_str(),
+                  WiFi.dnsIP().toString().c_str()
+                );
 }
 void sendBLESensorReport() {
   MySerial.println("+BLESENSOR:1");
@@ -963,6 +964,14 @@ bool containsNonASCII(const char* ssid) {
     }
   }
   return false;
+}
+void getMacStrAddress(char *macStr) {
+  uint8_t mac[13];
+  WiFi.macAddress(mac); // 将 MAC 地址写入 mac 数组
+  // 格式化输出（不带冒号）
+  // char macStr[13]; // 6个字符 + 1个结束符 + 预留空间
+  sprintf(macStr, "%02X%02X%02X%02X%02X%02X",
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 void setupEntry() {
   Serial.begin(115200);
