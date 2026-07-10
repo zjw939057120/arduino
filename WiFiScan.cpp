@@ -12,6 +12,7 @@
 #include <freertos/task.h>
 #include "ModbusServer.h"
 #include "HttpServer.h"
+#include "MQTTSubClient.h"
 
 #define SERIAL_BUFFER_SIZE 255
 #define NVS_NAMESPACE "wifi_config"
@@ -28,9 +29,8 @@ int bufferIndex = 0;
 Preferences preferences;
 BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
-// Pending WiFi SSID and password
-static char pendingSSID[33] = "";
-static char pendingPWD[65] = "";
+// WiFi configuration
+WiFiConfig wifiConfig;
 
 #define MAX_BLE_ADDRESSES 10
 // BLE device MAC addresses
@@ -433,18 +433,15 @@ void sendBleListReport(int count) {
 uint8_t disconnected_num = 0; // 断线次数
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   switch (event) {
-    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
       // 重置断线次数
       disconnected_num = 0;
       WiFi.setAutoReconnect(true);
 
       MySerial.println("WIFI CONNECTED");
-      if (pendingSSID[0] != '\0') {
-        saveWiFiConfig(pendingSSID, pendingPWD);
-        pendingSSID[0] = '\0';
-        pendingPWD[0] = '\0';
-      }
+      saveWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
       break;
+      }
 
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
       // 累计断线次数
@@ -604,7 +601,7 @@ void ScanWiFi() {
 void DoBLEScan(int duration) {
   ble_scan_lock = true;
   pBLEScan->stop();
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+  delay(10);
   // 设置扫描回调函数
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->start(duration, false);
@@ -640,7 +637,7 @@ bool autoConnect(char* ssid, char* pwd) {
         break;
       }
 
-      vTaskDelay(interval / portTICK_PERIOD_MS);
+      delay(interval);
       elapsed += interval;
     }
   }
@@ -654,13 +651,14 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     return;
   }
 
-  strncpy(pendingSSID, ssid, sizeof(pendingSSID) - 1);
-  pendingSSID[sizeof(pendingSSID) - 1] = '\0';
-  strncpy(pendingPWD, pwd, sizeof(pendingPWD) - 1);
-  pendingPWD[sizeof(pendingPWD) - 1] = '\0';
+  strncpy(wifiConfig.ssid, ssid, sizeof(wifiConfig.ssid) - 1);
+  wifiConfig.ssid[sizeof(wifiConfig.ssid) - 1] = '\0';
+  strncpy(wifiConfig.pwd, pwd, sizeof(wifiConfig.pwd) - 1);
+  wifiConfig.pwd[sizeof(wifiConfig.pwd) - 1] = '\0';
 
   // 重置断线次数
   disconnected_num = 0;
+  WiFi.disconnect();
   WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, pwd);
   MySerial.println("OK");
@@ -675,9 +673,11 @@ void processCommand(char* cmd) {
   } else if (strcmp(cmd, "AT+RESTART") == 0) {
     //重启
     MySerial.println("OK");
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    delay(1000);
     ESP.restart();
   } else if (strcmp(cmd, "AT+CWLAP") == 0) {
+    // 获取WiFi状态
+    ATCWState();
     //获取WiFi列表
     ScanWiFi();
   } else if (strncmp(cmd, "AT+CWJAP=", 9) == 0) {
@@ -768,7 +768,7 @@ void DebugSerialTask(void* pvParameters) {
       }
     }
 
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    delay(10);
   }
 }
 
@@ -806,26 +806,12 @@ void MySerialTask(void* pvParameters) {
       }
     }
 
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    delay(10);
   }
 }
 
 // FreeRTOS任务函数，用于从队列中接收命令并处理
 void CommandTask(void* pvParameters) {
-  int uartBaud = 9600;
-  int uartDataBits = 8;
-  int uartStopBits = 1;
-  int uartParity = 0;
-  int uartAddr = 0;
-
-  if (loadUartConfig(&uartBaud, &uartDataBits, &uartStopBits, &uartParity, &uartAddr)) {
-    sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity, uartAddr);
-  }
-
-  if (loadBleListConfig()) {
-    sendBleListReport(bleCount);
-  }
-
   CommandMessage msg;
   while (true) {
     if (xQueueReceive(commandQueue, &msg, portMAX_DELAY) == pdTRUE) {
@@ -837,7 +823,7 @@ void CommandTask(void* pvParameters) {
 // FreeRTOS任务函数，用于处理传感器数据
 void BLESensorTask(void* pvParameters) {
   while (true) {
-    vTaskDelay(3000 / portTICK_PERIOD_MS); // 延迟3秒后开始处理传感器数据
+    delay(3000); // 延迟3秒后开始处理传感器数据
     if (bleCount == 0) {
       continue; // 如果没有配置BLE传感器，则跳过本次循环
     }
@@ -865,6 +851,14 @@ void HttpServerTask(void *pvParameters) {
   HttpServerStart();
   while (true) {
     HttpServerHandler();
+  }
+}
+
+// FreeRTOS任务函数，用于处理MQTT连接
+void MQTTSubClientTask(void *pvParameters) {
+  MQTTSubClientStart();
+  while (true) {
+    MQTTSubClientHandler();
   }
 }
 
@@ -924,13 +918,9 @@ void ATCWState() {
                   WiFi.macAddress().c_str(),
                   WiFi.dnsIP().toString().c_str()
                 );
+  MySerial.flush();
 }
-void sendBLESensorReport() {
-  MySerial.println("+BLESENSOR:1");
-}
-void scanMode() {
-  MySerial.println("+SCANMODE:1");
-}
+
 int findBleDevice(const char* addr) {
   for (int i = 0; i < bleCount; ++i) {
     if (bleMacs[i][0] != '\0' && strcmp(bleMacs[i], addr) == 0) {
@@ -947,7 +937,7 @@ int sendBleSensorData() {
     bleSensorData[i].temp = 0;
     bleSensorData[i].hum = 0;
   }
-  // 等待扫描完成
+
   uint8_t cwState = getATCWState();
   int8_t rssi = WiFi.RSSI();
   MySerial.printf("+SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum, cwState, rssi);
@@ -976,10 +966,6 @@ void getMacStrAddress(char *macStr) {
 void setupEntry() {
   Serial.begin(115200);
   MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
-  int uartBaud = 115200;
-  int uartDataBits = 8;
-  int uartStopBits = 1;
-  char uartParity = 'N';
 
   Serial.print("Arduino Core Version: "); 
   Serial.println(ESP_ARDUINO_VERSION_STR);// 打印 Arduino Core 版本
@@ -991,26 +977,46 @@ void setupEntry() {
   Serial.println(ESP.getChipModel());
   MySerial.println("ready");
 
+  // 初始化BLE设备
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->setActiveScan(true);
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
-  
+
+  // 初始化WiFi 设备
+  WiFi.disconnect();
   WiFi.setAutoReconnect(true);
   WiFi.onEvent(WiFiEvent);
   WiFi.STA.begin();
-
+  // 加载WiFi配置
+  loadWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
+  // 加载UART配置
+  int uartBaud = 9600;
+  int uartDataBits = 8;
+  int uartStopBits = 1;
+  int uartParity = 0;
+  int uartAddr = 0;
+  if (loadUartConfig(&uartBaud, &uartDataBits, &uartStopBits, &uartParity, &uartAddr)) {
+    sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity, uartAddr);
+  }
+  // 加载BLE列表配置
+  if (loadBleListConfig()) {
+    sendBleListReport(bleCount);
+  }
+  // 创建命令队列
   commandQueue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(CommandMessage));
   if (commandQueue == NULL) {
     Serial.println("ERROR: queue create failed");
   } else {
+    // 创建任务
     xTaskCreate(DebugSerialTask, "DebugSerial", 4096, NULL, 1, NULL);
     xTaskCreate(MySerialTask, "MySerial", 4096, NULL, 1, NULL);
     xTaskCreate(BLESensorTask, "BLESensor", 4096, NULL, 1, NULL);
     xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, NULL);
     xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, NULL);
+    xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, NULL);
     xTaskCreate(CommandTask, "Command", 8192, NULL, 1, NULL);
   }
 }

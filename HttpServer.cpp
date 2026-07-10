@@ -80,7 +80,7 @@ static void drawGraph()
 }
 
 void HttpServerStart() {
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  delay(1000);
   
   // 启动mDNS服务
   char mac[18];
@@ -98,5 +98,5 @@ void HttpServerStart() {
 
 void HttpServerHandler() {
   httpServer.handleClient();
-  vTaskDelay(2 / portTICK_PERIOD_MS); // allow the cpu to switch to other tasks
+  delay(2); // allow the cpu to switch to other tasks
 }

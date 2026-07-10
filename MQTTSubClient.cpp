@@ -36,8 +36,8 @@ void messageReceived(String &topic, String &payload) {
 
 void MQTTSubClientStart() {
   // WiFi连接
-  // WiFi.begin(pendingSSID, pendingPWD);
-
+  WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
+  delay(1000);
   // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported
   // by Arduino. You need to set the IP address directly.
   client.begin("public.cloud.shiftr.io", net);

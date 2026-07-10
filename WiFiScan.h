@@ -4,6 +4,12 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+typedef struct {
+  char ssid[33];
+  char pwd[65];
+} WiFiConfig;
+
+extern WiFiConfig wifiConfig;
 
 void setupEntry();
 void loopEntry();
@@ -31,6 +37,7 @@ void CommandTask(void* pvParameters);
 void BLESensorTask(void* pvParameters);
 void ModbusServerTask(void* pvParameters);
 void HttpServerTask(void* pvParameters);
+void MQTTSubClientTask(void* pvParameters);
 bool parseBleListCommand(char* cmd, int* count);
 void saveBleListConfig();
 bool loadBleListConfig();

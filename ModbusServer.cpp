@@ -5,7 +5,7 @@
 NetworkServer modbusServer;
 
 void ModbusServerStart() {
-  vTaskDelay(1000 / portTICK_PERIOD_MS);
+  delay(1000);
 
   // 启动Modbus TCP服务器
   modbusServer.begin(MODBUS_PORT);
