@@ -23,9 +23,6 @@ typedef struct {
 } WiFiConfig;
 
 typedef struct {
-  char ap_ssid[33];//AP无线网络名称
-  char ap_pwd[65];//AP无线网络密码
-  char mac[18];//MAC地址
   char local_ip[16];//设备IP地址
   char gateway_ip[16];//网关IP地址
   char subnet_mask[16];//子网掩码
@@ -33,6 +30,11 @@ typedef struct {
   bool modbusDisabled;//MODBUS服务器是否禁用
   bool httpDisabled;//HTTP服务器是否禁用
   bool mqttDisabled;//MQTT服务器是否禁用
+
+  //AP配置
+  char ap_ssid[33];//AP无线网络名称
+  char ap_pwd[65];//AP无线网络密码
+  char mac[18];//MAC地址
 } DeviceConfig;
 
 extern TaskHandles taskHandles;

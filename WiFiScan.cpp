@@ -29,11 +29,11 @@
 
 
 // AT指令
-#define AT_CMD_AT "AT"
+#define AT_CMD_AT "AT\r\n"
 // 重启指令
-#define AT_CMD_RESTART "AT+RST"
+#define AT_CMD_RESTART "AT+RST\r\n"
 // 获取WiFi状态指令
-#define AT_CMD_CWLWAP "AT+CWLAP"
+#define AT_CMD_CWLWAP "AT+CWLAP\r\n"
 // 连接WiFi指令
 #define AT_CMD_CWJAP "AT+CWJAP="
 // BLE扫描指令
@@ -43,7 +43,7 @@
 // UART定义指令
 #define AT_CMD_UART_DEF "AT+UART_DEF="
 // 获取WiFi状态指令
-#define AT_CMD_CWSTATE "AT+CWSTATE?"
+#define AT_CMD_CWSTATE "AT+CWSTATE?\r\n"
 
 // 任务句柄
 TaskHandles taskHandles = {NULL};
@@ -587,12 +587,6 @@ bool loadWiFiConfig(char* ssid, char* pwd) {
   return true;
 }
 void loadDeviceConfig() {
-  // 获取设备名称
-  getHostname(deviceConfig.ap_ssid);
-  // 设置默认密码
-  strcpy(deviceConfig.ap_pwd, "12345678");
-  // 获取设备地址
-  getMacAddress(deviceConfig.mac);
   // 加载设备配置
   preferences.begin(NVS_DEVICE_NAMESPACE, true);
   // 加载设备IP地址
@@ -614,6 +608,14 @@ void loadDeviceConfig() {
   // 加载MQTT服务器是否禁用
   deviceConfig.mqttDisabled = preferences.getBool("mqttDisabled", false);
   preferences.end();
+
+  // 加载AP配置
+  // 获取设备名称
+  getHostname(deviceConfig.ap_ssid);
+  // 设置默认密码
+  strcpy(deviceConfig.ap_pwd, "12345678");
+  // 获取设备地址
+  getMacAddress(deviceConfig.mac);
 }
 
 void restore() {
@@ -796,8 +798,7 @@ void processCommand(char* cmd) {
     ATCWState();
   } else {
     // 无效指令
-    Serial.print("ERROR:");
-    Serial.println(cmd);
+    Serial.println("ERROR: " + String(strlen(cmd)) + "," + String(cmd));
     return;
   }
 }
@@ -811,28 +812,23 @@ void DebugSerialTask(void* pvParameters) {
   while (true) {
     while (Serial.available() > 0) {
       char c = Serial.read();
-
-      if (c == '\r') {
-        continue;
-      }
-
-      if (c == '\n') {
-        if (localIndex > 0) {
-          localBuffer[localIndex] = '\0';
-          strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
-          if (commandQueue != NULL) {
-            if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
-              Serial.println("ERROR: queue full");
-            }
-          }
-          localIndex = 0;
-        }
+      // 环形缓冲区
+      if (localIndex < SERIAL_BUFFER_SIZE - 1) {
+        localBuffer[localIndex++] = c;
       } else {
-        if (localIndex < SERIAL_BUFFER_SIZE - 1) {
-          localBuffer[localIndex++] = c;
-        } else {
-          localIndex = 0;
+        localIndex = 0;
+      }
+      // 处理AT命令
+      if(localIndex > 1 && localBuffer[localIndex - 2] == '\r' && localBuffer[localIndex - 1] == '\n') {
+        localBuffer[localIndex] = '\0';
+        strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
+        if (commandQueue != NULL) {
+          if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
+            Serial.println("ERROR: queue full");
+          }
         }
+        // 清空缓冲区
+        localIndex = 0;
       }
     }
 
@@ -849,28 +845,23 @@ void MySerialTask(void* pvParameters) {
   while (true) {
     while (MySerial.available() > 0) {
       char c = MySerial.read();
-
-      if (c == '\r') {
-        continue;
-      }
-
-      if (c == '\n') {
-        if (localIndex > 0) {
-          localBuffer[localIndex] = '\0';
-          strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
-          if (commandQueue != NULL) {
-            if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
-              MySerial.println("ERROR: command queue full");
-            }
-          }
-          localIndex = 0;
-        }
+      // 环形缓冲区
+      if (localIndex < SERIAL_BUFFER_SIZE - 1) {
+        localBuffer[localIndex++] = c;
       } else {
-        if (localIndex < SERIAL_BUFFER_SIZE - 1) {
-          localBuffer[localIndex++] = c;
-        } else {
-          localIndex = 0;
+        localIndex = 0;
+      }
+      // 处理AT命令
+      if(localIndex > 1 && localBuffer[localIndex - 2] == '\r' && localBuffer[localIndex - 1] == '\n') {
+        localBuffer[localIndex] = '\0';
+        strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
+        if (commandQueue != NULL) {
+          if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
+            Serial.println("ERROR: queue full");
+          }
         }
+        // 清空缓冲区
+        localIndex = 0;
       }
     }
 
