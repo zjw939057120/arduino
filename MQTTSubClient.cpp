@@ -12,7 +12,6 @@ void connect() {
   Serial.print("checking wifi");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
     delay(5000);// 等待5秒，确保WiFi连接稳定
   }
 
@@ -43,7 +42,7 @@ void MQTTSubClientStart() {
   mqttConfig.port = 23287;
   mqttConfig.user = "username";
   mqttConfig.password = "password";
-  mqttConfig.clientId = wifiConfig.ap_ssid;
+  mqttConfig.clientId = deviceConfig.ap_ssid;
   mqttConfig.subTopic = "subTopic";
   // WiFi连接
   WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);

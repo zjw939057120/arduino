@@ -25,7 +25,7 @@ void HttpServerStart() {
   delay(5000); // 等待5秒，确保WiFi连接稳定
 
   // 启动mDNS服务器
-  MDNS.begin(wifiConfig.ap_ssid);
+  MDNS.begin(deviceConfig.ap_ssid);
   // 启动HTTP服务器
   // serve a simple root page
   httpServer.on("/", handleRoot);

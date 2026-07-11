@@ -18,15 +18,26 @@ typedef struct {
 } TaskHandles;
 
 typedef struct {
-  char ap_ssid[33];
-  char ap_pwd[65];
-  char ssid[33];
-  char pwd[65];
-  char mac[18];
+  char ssid[33];//当前连接的无线网络名称
+  char pwd[65];//当前连接的无线网络密码
 } WiFiConfig;
+
+typedef struct {
+  char ap_ssid[33];//AP无线网络名称
+  char ap_pwd[65];//AP无线网络密码
+  char mac[18];//MAC地址
+  char local_ip[16];//设备IP地址
+  char gateway_ip[16];//网关IP地址
+  char subnet_mask[16];//子网掩码
+  char dns_ip[16];//DNS服务器IP地址
+  bool modbusDisabled;//MODBUS服务器是否禁用
+  bool httpDisabled;//HTTP服务器是否禁用
+  bool mqttDisabled;//MQTT服务器是否禁用
+} DeviceConfig;
 
 extern TaskHandles taskHandles;
 extern WiFiConfig wifiConfig;
+extern DeviceConfig deviceConfig;
 
 void setupEntry();
 void loopEntry();
@@ -42,7 +53,8 @@ bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* a
 void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int addr);
 void saveWiFiConfig(char* ssid, char* pwd);
 bool loadWiFiConfig(char* ssid, char* pwd);
-void clearWiFiConfig();
+void loadDeviceConfig();
+void restore();
 void ScanWiFi();
 void DoBLEScan(int duration);
 bool autoConnect(char* ssid, char* pwd);

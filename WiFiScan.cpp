@@ -14,17 +14,44 @@
 #include "HttpServer.h"
 #include "MQTTSubClient.h"
 
+// 串口缓冲区大小
 #define SERIAL_BUFFER_SIZE 255
-#define NVS_NAMESPACE "wifi_config"
+// WiFi配置命名空间
+#define NVS_WIFI_NAMESPACE "wifi_config"
+// 设备配置命名空间
+#define NVS_DEVICE_NAMESPACE "device_config"
+// UART配置命名空间
 #define NVS_UART_NAMESPACE "uart_config"
+// BLE配置命名空间
 #define NVS_BLE_NAMESPACE "ble_config"
+// 命令队列大小
 #define COMMAND_QUEUE_SIZE 8
 
-// Task handles
+
+// AT指令
+#define AT_CMD_AT "AT"
+// 重启指令
+#define AT_CMD_RESTART "AT+RST"
+// 获取WiFi状态指令
+#define AT_CMD_CWLWAP "AT+CWLAP"
+// 连接WiFi指令
+#define AT_CMD_CWJAP "AT+CWJAP="
+// BLE扫描指令
+#define AT_CMD_BLE_SCAN "AT+BLESCAN="
+// 获取BLE列表指令
+#define AT_CMD_BLE_LST "AT+BLE_LST="
+// UART定义指令
+#define AT_CMD_UART_DEF "AT+UART_DEF="
+// 获取WiFi状态指令
+#define AT_CMD_CWSTATE "AT+CWSTATE?"
+
+// 任务句柄
 TaskHandles taskHandles = {NULL};
-// WiFi configurations
+// WiFi配置
 WiFiConfig wifiConfig;
-// 断线重连次数
+// 设备配置
+DeviceConfig deviceConfig;
+// 重连次数
 uint8_t reconnectCount = 0;
 
 typedef struct {
@@ -160,7 +187,7 @@ void hexToStr(uint8_t* data, int length, char* output) {
 }
 
 bool parseWiFiCommand(char* cmd, char* ssid, char* pwd) {
-  char* paramStart = cmd + 9;
+  char* paramStart = cmd + strlen(AT_CMD_CWJAP);
   char* comma = strchr(paramStart, ',');
   
   if (comma == NULL) {
@@ -200,7 +227,7 @@ bool parseWiFiCommand(char* cmd, char* ssid, char* pwd) {
 
 bool parseBLECommand(char* cmd, int* mode, int* duration, int* filter_type, char* filter_param) {
     // 1. 定位参数起始位置 ("AT+BLESCAN=" 长度为 11)
-    char* paramStart = cmd + 11;
+    char* paramStart = cmd + strlen(AT_CMD_BLE_SCAN);
     
     // 2. 解析必选参数 <enable>
     char* comma = strchr(paramStart, ',');
@@ -277,7 +304,7 @@ bool parseBLECommand(char* cmd, int* mode, int* duration, int* filter_type, char
 }
 
 bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, int* parity, int* addr) {
-  char* paramStart = cmd + 12;
+  char* paramStart = cmd + strlen(AT_CMD_UART_DEF);
   char* next = strchr(paramStart, ',');
   if (next == NULL) {
     return false;
@@ -331,7 +358,7 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
 }
 
 bool parseBleListCommand(char* cmd, int* count) {
-  char* paramStart = cmd + 11; // skip "AT+BLE_LST="
+  char* paramStart = cmd + strlen(AT_CMD_BLE_LST); // skip "AT+BLE_LST="
   
   // Parse first parameter: count
   char* comma = strchr(paramStart, ',');
@@ -438,18 +465,19 @@ void sendBleListReport(int count) {
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   switch (event) {
   case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
-    // 重置断线重连次数
+    //启用自动重连
     reconnectCount = 0;
+    WiFi.setAutoReconnect(true);
     MySerial.println("WIFI CONNECTED");
     saveWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
   }
   break;
   case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
   {
-    // 累计断线重连次数
+    // 累计重连次数
     if (reconnectCount > 10) {
-      // 断线重连次数超过 10 次
-      return;
+      // 重连次数超过 10 次
+      WiFi.setAutoReconnect(false);
     }
     else {
       reconnectCount++;
@@ -528,7 +556,7 @@ void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int 
 }
 
 void saveWiFiConfig(char* ssid, char* pwd) {
-  preferences.begin(NVS_NAMESPACE, false);
+  preferences.begin(NVS_WIFI_NAMESPACE, false);
   String tmp = "";
   tmp = preferences.getString("ssid", "");
   if (!tmp.equals(ssid)) {
@@ -542,7 +570,7 @@ void saveWiFiConfig(char* ssid, char* pwd) {
 }
 
 bool loadWiFiConfig(char* ssid, char* pwd) {
-  preferences.begin(NVS_NAMESPACE, true);
+  preferences.begin(NVS_WIFI_NAMESPACE, true);
   String savedSsid = preferences.getString("ssid", "");
   String savedPwd = preferences.getString("pwd", "");
   preferences.end();
@@ -558,11 +586,52 @@ bool loadWiFiConfig(char* ssid, char* pwd) {
   
   return true;
 }
+void loadDeviceConfig() {
+  // 获取设备名称
+  getHostname(deviceConfig.ap_ssid);
+  // 设置默认密码
+  strcpy(deviceConfig.ap_pwd, "12345678");
+  // 获取设备地址
+  getMacAddress(deviceConfig.mac);
+  // 加载设备配置
+  preferences.begin(NVS_DEVICE_NAMESPACE, true);
+  // 加载设备IP地址
+  strncpy(deviceConfig.local_ip, preferences.getString("local_ip", "").c_str(), 16);
+  deviceConfig.local_ip[15] = '\0';
+  // 加载网关IP地址
+  strncpy(deviceConfig.gateway_ip, preferences.getString("gateway_ip", "").c_str(), 16);
+  deviceConfig.gateway_ip[15] = '\0';
+  // 加载子网掩码
+  strncpy(deviceConfig.subnet_mask, preferences.getString("subnet_mask", "").c_str(), 16);
+  deviceConfig.subnet_mask[15] = '\0';
+  // 加载DNS服务器IP地址
+  strncpy(deviceConfig.dns_ip, preferences.getString("dns_ip", "").c_str(), 16);
+  deviceConfig.dns_ip[15] = '\0';
+  // 加载MODBUS服务器是否禁用
+  deviceConfig.modbusDisabled = preferences.getBool("modbusDisabled", false);
+  // 加载HTTP服务器是否禁用
+  deviceConfig.httpDisabled = preferences.getBool("httpDisabled", false);
+  // 加载MQTT服务器是否禁用
+  deviceConfig.mqttDisabled = preferences.getBool("mqttDisabled", false);
+  preferences.end();
+}
 
-void clearWiFiConfig() {
-  preferences.begin(NVS_NAMESPACE, false);
+void restore() {
+  preferences.begin(NVS_WIFI_NAMESPACE, false);
   preferences.clear();
   preferences.end();
+  preferences.begin(NVS_DEVICE_NAMESPACE, false);
+  preferences.clear();
+  preferences.end();
+  preferences.begin(NVS_UART_NAMESPACE, false);
+  preferences.clear();
+  preferences.end();
+  preferences.begin(NVS_BLE_NAMESPACE, false);
+  preferences.clear();
+  preferences.end();
+  // 重启ESP32
+  delay(1000);
+  ESP.restart();
 }
 
 void ScanWiFi() {
@@ -656,29 +725,28 @@ void DoWiFiConnect(char* ssid, char* pwd) {
   strncpy(wifiConfig.pwd, pwd, sizeof(wifiConfig.pwd) - 1);
   wifiConfig.pwd[sizeof(wifiConfig.pwd) - 1] = '\0';
 
-  // 重置断线重连次数
+  //启用自动重连
   reconnectCount = 0;
+  WiFi.setAutoReconnect(true);
   WiFi.begin(ssid, pwd);
   MySerial.println("OK");
 }
 
 void processCommand(char* cmd) {
-  // MySerial.println(cmd);//回显AT指令
-
-  if (strcmp(cmd, "AT") == 0) {
+  if (strcmp(cmd, AT_CMD_AT) == 0) {
     //测试
     MySerial.println("OK");
-  } else if (strcmp(cmd, "AT+RESTART") == 0) {
-    //重启
+  } else if (strcmp(cmd, AT_CMD_RESTART) == 0) {
     MySerial.println("OK");
+    // 重启ESP32
     delay(1000);
     ESP.restart();
-  } else if (strcmp(cmd, "AT+CWLAP") == 0) {
+  } else if (strcmp(cmd, AT_CMD_CWLWAP) == 0) {
     // 获取WiFi状态
     ATCWState();
     //获取WiFi列表
     ScanWiFi();
-  } else if (strncmp(cmd, "AT+CWJAP=", 9) == 0) {
+  } else if (strncmp(cmd, AT_CMD_CWJAP, strlen(AT_CMD_CWJAP)) == 0) {
     //连接WiFi
     char ssid[33];
     char pwd[65];
@@ -688,7 +756,7 @@ void processCommand(char* cmd) {
     } else {
       MySerial.println("ERROR");
     }
-  } else if (strncmp(cmd, "AT+BLESCAN=", 11) == 0) {
+  } else if (strncmp(cmd, AT_CMD_BLE_SCAN, strlen(AT_CMD_BLE_SCAN)) == 0) {
     //扫描BLE
     int mode = 0;
     int duration = 0;
@@ -698,7 +766,7 @@ void processCommand(char* cmd) {
     } else {
       MySerial.println("ERROR");
     }
-  } else if (strncmp(cmd, "AT+BLE_LST=", 11) == 0) {
+  } else if (strncmp(cmd, AT_CMD_BLE_LST, strlen(AT_CMD_BLE_LST)) == 0) {
     //保存BLE列表
     int count = 0;
     if (parseBleListCommand(cmd, &count)) {
@@ -709,7 +777,7 @@ void processCommand(char* cmd) {
     } else {
       MySerial.println("ERROR");
     }
-  } else if (strncmp(cmd, "AT+UART_DEF=", 12) == 0) {
+  } else if (strncmp(cmd, AT_CMD_UART_DEF, strlen(AT_CMD_UART_DEF)) == 0) {
     //设置串口参数
     int baud = 115200;
     int dataBits = 8;
@@ -723,11 +791,13 @@ void processCommand(char* cmd) {
     } else {
       MySerial.println("ERROR");
     }
-  } else if (strcmp(cmd, "AT+CWSTATE?") == 0) {
+  } else if (strcmp(cmd, AT_CMD_CWSTATE) == 0) {
     // 获取WiFi状态
     ATCWState();
   } else {
     // 无效指令
+    Serial.print("ERROR:");
+    Serial.println(cmd);
     return;
   }
 }
@@ -923,7 +993,7 @@ void ATCWState() {
                   WiFi.localIP().toString().c_str(),
                   WiFi.gatewayIP().toString().c_str(),
                   WiFi.subnetMask().toString().c_str(),
-                  wifiConfig.mac,
+                  deviceConfig.mac,
                   WiFi.dnsIP().toString().c_str()
                 );
   MySerial.flush();
@@ -1000,13 +1070,11 @@ void setupEntry() {
   MySerial.println("ready");
 
 
-  //初始化WiFi配置
-  getHostname(wifiConfig.ap_ssid);
-  strcpy(wifiConfig.ap_pwd, "12345678");
-  getMacAddress(wifiConfig.mac);
+  // 加载设备配置
+  loadDeviceConfig();
 
   // 初始化BLE设备
-  BLEDevice::init(wifiConfig.ap_ssid);
+  BLEDevice::init(deviceConfig.ap_ssid);
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->setActiveScan(true);
@@ -1014,14 +1082,15 @@ void setupEntry() {
   pBLEScan->setWindow(99);
 
   // 初始化WiFi 设备
-  WiFi.hostname(wifiConfig.ap_ssid);
-  // 禁用自动重连
-  WiFi.setAutoReconnect(false);
+  WiFi.hostname(deviceConfig.ap_ssid);
+  // 启用自动重连
+  reconnectCount = 0;
+  WiFi.setAutoReconnect(true);
   WiFi.onEvent(WiFiEvent);
   WiFi.STA.begin();
 
   // 创建AP模式
-  WiFi.AP.create(wifiConfig.ap_ssid, wifiConfig.ap_pwd);
+  WiFi.AP.create(deviceConfig.ap_ssid, deviceConfig.ap_pwd);
   WiFi.AP.begin();
 
   // 加载WiFi配置
@@ -1055,11 +1124,17 @@ void setupEntry() {
     // BLE任务
     xTaskCreate(BLESensorTask, "BLESensor", 4096, NULL, 1, &taskHandles.bleTaskHandle);
     // Modbus任务
-    xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, &taskHandles.modbusTaskHandle);
+    if (!deviceConfig.modbusDisabled) {
+      xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, &taskHandles.modbusTaskHandle);
+    }
     // HTTP任务
-    xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, &taskHandles.httpServerTaskHandle);
+    if (!deviceConfig.httpDisabled) {
+      xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, &taskHandles.httpServerTaskHandle);
+    }
     // MQTT任务
-    xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, &taskHandles.mqttTaskHandle);
+    if (!deviceConfig.mqttDisabled) {
+      xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, &taskHandles.mqttTaskHandle);
+    }
     // 命令任务
     xTaskCreate(CommandTask, "Command", 8192, NULL, 1, &taskHandles.commandTaskHandle);
     // 其他任务
