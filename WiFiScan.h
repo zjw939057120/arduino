@@ -4,6 +4,19 @@
 #include <Arduino.h>
 #include <WiFi.h>
 
+
+typedef struct {
+    TaskHandle_t debugSerialTaskHandle;
+    TaskHandle_t mySerialTaskHandle;
+    TaskHandle_t bleTaskHandle;
+    TaskHandle_t mqttTaskHandle;
+    TaskHandle_t modbusTaskHandle;
+    TaskHandle_t httpServerTaskHandle;
+    TaskHandle_t commandTaskHandle;
+    TaskHandle_t miscTaskHandle;
+
+} TaskHandles;
+
 typedef struct {
   char ap_ssid[33];
   char ap_pwd[65];
@@ -12,6 +25,7 @@ typedef struct {
   char mac[18];
 } WiFiConfig;
 
+extern TaskHandles taskHandles;
 extern WiFiConfig wifiConfig;
 
 void setupEntry();
@@ -36,11 +50,12 @@ void DoWiFiConnect(char* ssid, char* pwd);
 void processCommand(char* cmd);
 void DebugSerialTask(void* pvParameters);
 void MySerialTask(void* pvParameters);
-void CommandTask(void* pvParameters);
 void BLESensorTask(void* pvParameters);
 void ModbusServerTask(void* pvParameters);
 void HttpServerTask(void* pvParameters);
 void MQTTSubClientTask(void* pvParameters);
+void CommandTask(void* pvParameters);
+void MiscTask(void* pvParameters);
 bool parseBleListCommand(char* cmd, int* count);
 void saveBleListConfig();
 bool loadBleListConfig();

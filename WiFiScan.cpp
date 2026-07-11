@@ -20,6 +20,13 @@
 #define NVS_BLE_NAMESPACE "ble_config"
 #define COMMAND_QUEUE_SIZE 8
 
+// Task handles
+TaskHandles taskHandles = {NULL};
+// WiFi configurations
+WiFiConfig wifiConfig;
+// 断线重连次数
+uint8_t reconnectCount = 0;
+
 typedef struct {
   char cmd[SERIAL_BUFFER_SIZE];
 } CommandMessage;
@@ -29,8 +36,6 @@ int bufferIndex = 0;
 Preferences preferences;
 BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
-// WiFi configuration
-WiFiConfig wifiConfig;
 
 #define MAX_BLE_ADDRESSES 10
 // BLE device MAC addresses
@@ -430,63 +435,58 @@ void sendBleListReport(int count) {
   sendBleSensorData();
 }
 
-uint8_t disconnected_num = 0; // 断线次数
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   switch (event) {
-    case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
-      // 重置断线次数
-      disconnected_num = 0;
-      WiFi.setAutoReconnect(true);
-
-      MySerial.println("WIFI CONNECTED");
-      saveWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
-      break;
-      }
-
-    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED: {
-      // 累计断线次数
-      if (disconnected_num > 5) {
-        WiFi.setAutoReconnect(false);
-      } else {
-        WiFi.setAutoReconnect(true);
-        disconnected_num++;
-      }
-
-      MySerial.println("WIFI DISCONNECTED");
-      int errorCode = 5;
-      switch (info.wifi_sta_disconnected.reason)
-      {
-      case WIFI_REASON_NO_AP_FOUND:
-        errorCode = 3;
-        break;
-      case WIFI_REASON_AUTH_FAIL:
-      case WIFI_REASON_AUTH_EXPIRE:
-        errorCode = 2;
-        break;
-      case WIFI_REASON_BEACON_TIMEOUT:
-      case WIFI_REASON_ASSOC_FAIL:
-      case WIFI_REASON_HANDSHAKE_TIMEOUT:
-      case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
-        errorCode = 1;
-        break;
-      case WIFI_REASON_CONNECTION_FAIL:
-        errorCode = 4;
-        break;
-      default:
-        errorCode = 5;
-        break;
-      }
-      MySerial.printf("+CWJAP:%d\r\n", errorCode);
-      break;
+  case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
+    // 重置断线重连次数
+    reconnectCount = 0;
+    MySerial.println("WIFI CONNECTED");
+    saveWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
+  }
+  break;
+  case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+  {
+    // 累计断线重连次数
+    if (reconnectCount > 10) {
+      // 断线重连次数超过 10 次
+      return;
+    }
+    else {
+      reconnectCount++;
     }
 
+    MySerial.println("WIFI DISCONNECTED");
+    int errorCode = 5;
+    switch (info.wifi_sta_disconnected.reason) {
+    case WIFI_REASON_NO_AP_FOUND:
+      errorCode = 3;
+      break;
+    case WIFI_REASON_AUTH_FAIL:
+    case WIFI_REASON_AUTH_EXPIRE:
+      errorCode = 2;
+      break;
+    case WIFI_REASON_BEACON_TIMEOUT:
+    case WIFI_REASON_ASSOC_FAIL:
+    case WIFI_REASON_HANDSHAKE_TIMEOUT:
+    case WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT:
+      errorCode = 1;
+      break;
+    case WIFI_REASON_CONNECTION_FAIL:
+      errorCode = 4;
+      break;
+    default:
+      errorCode = 5;
+      break;
+    }
+    MySerial.printf("+CWJAP:%d\r\n", errorCode);
+  }
+  break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       MySerial.println("WIFI GOT IP");
       break;
-
     default:
       break;
-  }
+    }
 
   ATCWState();// 获取当前 Wi-Fi 状态
 }
@@ -656,10 +656,8 @@ void DoWiFiConnect(char* ssid, char* pwd) {
   strncpy(wifiConfig.pwd, pwd, sizeof(wifiConfig.pwd) - 1);
   wifiConfig.pwd[sizeof(wifiConfig.pwd) - 1] = '\0';
 
-  // 重置断线次数
-  disconnected_num = 0;
-  WiFi.disconnect();
-  WiFi.setAutoReconnect(true);
+  // 重置断线重连次数
+  reconnectCount = 0;
   WiFi.begin(ssid, pwd);
   MySerial.println("OK");
 }
@@ -810,16 +808,6 @@ void MySerialTask(void* pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于从队列中接收命令并处理
-void CommandTask(void* pvParameters) {
-  CommandMessage msg;
-  while (true) {
-    if (xQueueReceive(commandQueue, &msg, portMAX_DELAY) == pdTRUE) {
-      processCommand(msg.cmd);
-    }
-  }
-}
-
 // FreeRTOS任务函数，用于处理传感器数据
 void BLESensorTask(void* pvParameters) {
   while (true) {
@@ -862,7 +850,27 @@ void MQTTSubClientTask(void *pvParameters) {
   }
 }
 
+// FreeRTOS任务函数，用于从队列中接收命令并处理
+void CommandTask(void* pvParameters) {
+  CommandMessage msg;
+  while (true) {
+    if (xQueueReceive(commandQueue, &msg, portMAX_DELAY) == pdTRUE) {
+      processCommand(msg.cmd);
+    }
+  }
+}
 
+// FreeRTOS任务函数，用于处理其他任务
+void MiscTask(void* pvParameters) {
+  while (true) {
+    delay(10 * 60 * 1000); // 延迟10分钟后开始处理其他任务
+    // 关闭AP模式
+    WiFi.AP.end();
+    // 删除任务
+    vTaskDelete(NULL);
+    taskHandles.miscTaskHandle = NULL;
+  }
+}
 
 // 获取符合 ESP-AT 协议规范的 Wi-Fi 状态码 (0-4)
 uint8_t getATCWState() {
@@ -1006,9 +1014,9 @@ void setupEntry() {
   pBLEScan->setWindow(99);
 
   // 初始化WiFi 设备
-  WiFi.disconnect();
   WiFi.hostname(wifiConfig.ap_ssid);
-  WiFi.setAutoReconnect(true);
+  // 禁用自动重连
+  WiFi.setAutoReconnect(false);
   WiFi.onEvent(WiFiEvent);
   WiFi.STA.begin();
 
@@ -1040,13 +1048,22 @@ void setupEntry() {
     Serial.println("ERROR: queue create failed");
   } else {
     // 创建任务
-    xTaskCreate(DebugSerialTask, "DebugSerial", 4096, NULL, 1, NULL);
-    xTaskCreate(MySerialTask, "MySerial", 4096, NULL, 1, NULL);
-    xTaskCreate(BLESensorTask, "BLESensor", 4096, NULL, 1, NULL);
-    xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, NULL);
-    xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, NULL);
-    xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, NULL);
-    xTaskCreate(CommandTask, "Command", 8192, NULL, 1, NULL);
+    // 调试串口任务
+    xTaskCreate(DebugSerialTask, "DebugSerial", 4096, NULL, 1, &taskHandles.debugSerialTaskHandle);
+    // 串口任务
+    xTaskCreate(MySerialTask, "MySerial", 4096, NULL, 1, &taskHandles.mySerialTaskHandle);
+    // BLE任务
+    xTaskCreate(BLESensorTask, "BLESensor", 4096, NULL, 1, &taskHandles.bleTaskHandle);
+    // Modbus任务
+    xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, &taskHandles.modbusTaskHandle);
+    // HTTP任务
+    xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, &taskHandles.httpServerTaskHandle);
+    // MQTT任务
+    xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, &taskHandles.mqttTaskHandle);
+    // 命令任务
+    xTaskCreate(CommandTask, "Command", 8192, NULL, 1, &taskHandles.commandTaskHandle);
+    // 其他任务
+    xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
   }
 }
 
