@@ -5,7 +5,17 @@
 //[MQTT@2.5.3]
 #include <WiFi.h>
 #include <MQTT.h>
-#define MQTT_PORT 1883
+
+typedef struct {
+    String host;
+    int port;
+    String user;
+    String password;
+    String clientId;
+    String subTopic;
+} MQTTConfig;
+
+extern MQTTConfig mqttConfig;
 
 extern MQTTClient client;
 

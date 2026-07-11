@@ -80,12 +80,10 @@ static void drawGraph()
 }
 
 void HttpServerStart() {
-  delay(1000);
+  delay(5000); // 等待5秒，确保WiFi连接稳定
   
-  // 启动mDNS服务
-  char mac[18];
-  getMacStrAddress(mac);
-  MDNS.begin(mac);
+  // 启动mDNS服务器
+  MDNS.begin(wifiConfig.ap_ssid);
   // 启动HTTP服务器
   httpServer.on("/", handleRoot);
   httpServer.on("/test.svg", drawGraph);

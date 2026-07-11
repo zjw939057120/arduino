@@ -5,8 +5,11 @@
 #include <WiFi.h>
 
 typedef struct {
+  char ap_ssid[33];
+  char ap_pwd[65];
   char ssid[33];
   char pwd[65];
+  char mac[18];
 } WiFiConfig;
 
 extern WiFiConfig wifiConfig;
@@ -44,10 +47,10 @@ bool loadBleListConfig();
 void sendBleListReport(int count);
 uint8_t getATCWState();
 void ATCWState();
-void scanMode();
 int findBleDevice(const char* addr);
 int sendBleSensorData();
 bool containsNonASCII(const char* ssid);
-void getMacStrAddress(char *macStr);
+void getMacAddress(char *macStr);
+void getHostname(char *hostnameStr);
 
 #endif // WIFI_SCAN_H

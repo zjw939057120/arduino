@@ -5,11 +5,11 @@
 NetworkServer modbusServer;
 
 void ModbusServerStart() {
-  delay(1000);
+  delay(5000); // 等待5秒，确保WiFi连接稳定
 
   // 启动Modbus TCP服务器
   modbusServer.begin(MODBUS_PORT);
-  Serial.println("Server started");
+  Serial.println("Modbus server started");
 }
 
 void ModbusServerHandler() {

@@ -915,7 +915,7 @@ void ATCWState() {
                   WiFi.localIP().toString().c_str(),
                   WiFi.gatewayIP().toString().c_str(),
                   WiFi.subnetMask().toString().c_str(),
-                  WiFi.macAddress().c_str(),
+                  wifiConfig.mac,
                   WiFi.dnsIP().toString().c_str()
                 );
   MySerial.flush();
@@ -955,13 +955,27 @@ bool containsNonASCII(const char* ssid) {
   }
   return false;
 }
-void getMacStrAddress(char *macStr) {
-  uint8_t mac[13];
-  WiFi.macAddress(mac); // 将 MAC 地址写入 mac 数组
-  // 格式化输出（不带冒号）
-  // char macStr[13]; // 6个字符 + 1个结束符 + 预留空间
-  sprintf(macStr, "%02X%02X%02X%02X%02X%02X",
-          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+void getMacAddress(char *macStr) {
+  uint64_t chipId = ESP.getEfuseMac();
+  // 将 64位整数按字节拆分，并强制按照网络标准的大端序（从高位到低位）格式化输出
+  sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+           (uint8_t)(chipId), // 最低位字节对应 MAC 地址的第一个字节
+           (uint8_t)(chipId >> 8),
+           (uint8_t)(chipId >> 16),
+           (uint8_t)(chipId >> 24),
+           (uint8_t)(chipId >> 32),
+           (uint8_t)(chipId >> 40)); // 最高位字节对应 MAC 地址的最后一个字节
+}
+void getHostname(char *hostnameStr) {
+  uint64_t chipId = ESP.getEfuseMac();
+  // 将 64位整数按字节拆分，并强制按照网络标准的大端序（从高位到低位）格式化输出
+  sprintf(hostnameStr, "%02X%02X%02X%02X%02X%02X",
+           (uint8_t)(chipId), // 最低位字节对应 MAC 地址的第一个字节
+           (uint8_t)(chipId >> 8),
+           (uint8_t)(chipId >> 16),
+           (uint8_t)(chipId >> 24),
+           (uint8_t)(chipId >> 32),
+           (uint8_t)(chipId >> 40)); // 最高位字节对应 MAC 地址的最后一个字节
 }
 void setupEntry() {
   Serial.begin(115200);
@@ -977,8 +991,14 @@ void setupEntry() {
   Serial.println(ESP.getChipModel());
   MySerial.println("ready");
 
+
+  //初始化WiFi配置
+  getHostname(wifiConfig.ap_ssid);
+  strcpy(wifiConfig.ap_pwd, "12345678");
+  getMacAddress(wifiConfig.mac);
+
   // 初始化BLE设备
-  BLEDevice::init("");
+  BLEDevice::init(wifiConfig.ap_ssid);
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->setActiveScan(true);
@@ -987,11 +1007,18 @@ void setupEntry() {
 
   // 初始化WiFi 设备
   WiFi.disconnect();
+  WiFi.hostname(wifiConfig.ap_ssid);
   WiFi.setAutoReconnect(true);
   WiFi.onEvent(WiFiEvent);
   WiFi.STA.begin();
+
+  // 创建AP模式
+  WiFi.AP.create(wifiConfig.ap_ssid, wifiConfig.ap_pwd);
+  WiFi.AP.begin();
+
   // 加载WiFi配置
   loadWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
+
   // 加载UART配置
   int uartBaud = 9600;
   int uartDataBits = 8;
@@ -1001,10 +1028,12 @@ void setupEntry() {
   if (loadUartConfig(&uartBaud, &uartDataBits, &uartStopBits, &uartParity, &uartAddr)) {
     sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity, uartAddr);
   }
+
   // 加载BLE列表配置
   if (loadBleListConfig()) {
     sendBleListReport(bleCount);
   }
+  
   // 创建命令队列
   commandQueue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(CommandMessage));
   if (commandQueue == NULL) {
