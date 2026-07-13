@@ -59,7 +59,6 @@ void loadDeviceConfig();
 void restore();
 void ScanWiFi();
 void DoBLEScan(int duration);
-bool autoConnect(char* ssid, char* pwd);
 void DoWiFiConnect(char* ssid, char* pwd);
 void processCommand(char* cmd);
 void DebugSerialTask(void* pvParameters);

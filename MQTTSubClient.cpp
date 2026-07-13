@@ -9,19 +9,19 @@ unsigned long lastMillis = 0;
 MQTTConfig mqttConfig;
 
 void connect() {
-  Serial.print("checking wifi");
+  Serial.println("checking wifi");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(5000);// 等待5秒，确保WiFi连接稳定
   }
 
-  Serial.print("\n mqtt connecting");
+  Serial.println("MQTT connecting");
   while (!client.connect(mqttConfig.clientId.c_str(), mqttConfig.user.c_str(), mqttConfig.password.c_str())) {
     Serial.print(".");
     delay(5000);// 等待5秒，确保MQTT连接稳定
   }
 
-  Serial.println("\n mqtt connected!");
+  Serial.println("MQTT connected");
 
   client.subscribe(mqttConfig.subTopic.c_str());
   // client.unsubscribe(mqttConfig.subTopic.c_str());

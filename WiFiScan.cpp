@@ -29,11 +29,11 @@
 
 
 // AT指令
-#define AT_CMD_AT "AT\r\n"
+#define AT_CMD_AT "AT"
 // 重启指令
-#define AT_CMD_RESTART "AT+RST\r\n"
+#define AT_CMD_RESTART "AT+RST"
 // 获取WiFi状态指令
-#define AT_CMD_CWLWAP "AT+CWLAP\r\n"
+#define AT_CMD_CWLWAP "AT+CWLAP"
 // 连接WiFi指令
 #define AT_CMD_CWJAP "AT+CWJAP="
 // BLE扫描指令
@@ -43,7 +43,7 @@
 // UART定义指令
 #define AT_CMD_UART_DEF "AT+UART_DEF="
 // 获取WiFi状态指令
-#define AT_CMD_CWSTATE "AT+CWSTATE?\r\n"
+#define AT_CMD_CWSTATE "AT+CWSTATE?"
 
 // 任务句柄
 TaskHandles taskHandles = {NULL};
@@ -465,9 +465,10 @@ void sendBleListReport(int count) {
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   switch (event) {
   case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
-    //启用自动重连
+    //禁用自动重连
+    WiFi.setAutoReconnect(false);
+    // 重置重连次数
     reconnectCount = 0;
-    WiFi.setAutoReconnect(true);
     MySerial.println("WIFI CONNECTED");
     saveWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
   }
@@ -475,11 +476,11 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
   {
     // 累计重连次数
-    if (reconnectCount > 10) {
-      // 重连次数超过 10 次
+    if (reconnectCount > 6) {
+      // 重连次数超过 6 次
       WiFi.setAutoReconnect(false);
-    }
-    else {
+    } else {
+      WiFi.setAutoReconnect(true);
       reconnectCount++;
     }
 
@@ -682,40 +683,6 @@ void DoBLEScan(int duration) {
   ble_scan_lock = false;
 }
 
-bool autoConnect(char* ssid, char* pwd) {
-  //自动连接WiFi，尝试WPA2和OPEN两种模式
-  const wifi_auth_mode_t authModes[] = {
-    WIFI_AUTH_WPA2_PSK,
-    WIFI_AUTH_OPEN
-  };
-
-  for (int i = 0; i < 2; ++i) {
-    WiFi.setMinSecurity(authModes[i]);
-    WiFi.begin(ssid, pwd);
-
-    const int timeout = 5000;
-    const int interval = 200;
-    int elapsed = 0;
-
-    while (elapsed < timeout) {
-      wl_status_t status = WiFi.status();
-
-      if (status == WL_CONNECTED) {
-        return true;
-      }
-
-      if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
-        break;
-      }
-
-      delay(interval);
-      elapsed += interval;
-    }
-  }
-
-  return false;
-}
-
 void DoWiFiConnect(char* ssid, char* pwd) {
   if (strlen(ssid) == 0) {
     MySerial.println("ERROR");
@@ -727,14 +694,33 @@ void DoWiFiConnect(char* ssid, char* pwd) {
   strncpy(wifiConfig.pwd, pwd, sizeof(wifiConfig.pwd) - 1);
   wifiConfig.pwd[sizeof(wifiConfig.pwd) - 1] = '\0';
 
-  //启用自动重连
-  reconnectCount = 0;
+  if (strcmp(wifiConfig.pwd, "") == 0) {
+    // 无密码连接
+    WiFi.begin(wifiConfig.ssid);
+    MySerial.println("OK");
+
+    Serial.print("connect to ");
+    Serial.println(wifiConfig.ssid);
+    return;
+  } else {
+    // 有密码连接
+    WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
+    MySerial.println("OK");
+
+    Serial.print("connect to ");
+    Serial.print(wifiConfig.ssid);
+    Serial.print(":");
+    Serial.println(wifiConfig.pwd);
+  }
+  // 启用自动重连
   WiFi.setAutoReconnect(true);
-  WiFi.begin(ssid, pwd);
-  MySerial.println("OK");
+  // 重置重连次数
+  reconnectCount = 0;
 }
 
 void processCommand(char* cmd) {
+  Serial.println(cmd);//串口输出命令
+
   if (strcmp(cmd, AT_CMD_AT) == 0) {
     //测试
     MySerial.println("OK");
@@ -744,8 +730,6 @@ void processCommand(char* cmd) {
     delay(1000);
     ESP.restart();
   } else if (strcmp(cmd, AT_CMD_CWLWAP) == 0) {
-    // 获取WiFi状态
-    ATCWState();
     //获取WiFi列表
     ScanWiFi();
   } else if (strncmp(cmd, AT_CMD_CWJAP, strlen(AT_CMD_CWJAP)) == 0) {
@@ -798,7 +782,8 @@ void processCommand(char* cmd) {
     ATCWState();
   } else {
     // 无效指令
-    Serial.println("ERROR: " + String(strlen(cmd)) + "," + String(cmd));
+    Serial.print("ERROR:");
+    Serial.println(cmd);
     return;
   }
 }
@@ -812,23 +797,28 @@ void DebugSerialTask(void* pvParameters) {
   while (true) {
     while (Serial.available() > 0) {
       char c = Serial.read();
-      // 环形缓冲区
-      if (localIndex < SERIAL_BUFFER_SIZE - 1) {
-        localBuffer[localIndex++] = c;
-      } else {
-        localIndex = 0;
+
+      if (c == '\r') {
+        continue;
       }
-      // 处理AT命令
-      if(localIndex > 1 && localBuffer[localIndex - 2] == '\r' && localBuffer[localIndex - 1] == '\n') {
-        localBuffer[localIndex] = '\0';
-        strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
-        if (commandQueue != NULL) {
-          if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
-            Serial.println("ERROR: queue full");
+
+      if (c == '\n') {
+        if (localIndex > 0) {
+          localBuffer[localIndex] = '\0';
+          strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
+          if (commandQueue != NULL) {
+            if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
+              Serial.println("ERROR: queue full");
+            }
           }
+          localIndex = 0;
         }
-        // 清空缓冲区
-        localIndex = 0;
+      } else {
+        if (localIndex < SERIAL_BUFFER_SIZE - 1) {
+          localBuffer[localIndex++] = c;
+        } else {
+          localIndex = 0;
+        }
       }
     }
 
@@ -845,23 +835,28 @@ void MySerialTask(void* pvParameters) {
   while (true) {
     while (MySerial.available() > 0) {
       char c = MySerial.read();
-      // 环形缓冲区
-      if (localIndex < SERIAL_BUFFER_SIZE - 1) {
-        localBuffer[localIndex++] = c;
-      } else {
-        localIndex = 0;
+
+      if (c == '\r') {
+        continue;
       }
-      // 处理AT命令
-      if(localIndex > 1 && localBuffer[localIndex - 2] == '\r' && localBuffer[localIndex - 1] == '\n') {
-        localBuffer[localIndex] = '\0';
-        strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
-        if (commandQueue != NULL) {
-          if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
-            Serial.println("ERROR: queue full");
+
+      if (c == '\n') {
+        if (localIndex > 0) {
+          localBuffer[localIndex] = '\0';
+          strncpy(msg.cmd, localBuffer, SERIAL_BUFFER_SIZE);
+          if (commandQueue != NULL) {
+            if (xQueueSend(commandQueue, &msg, 0) != pdTRUE) {
+              MySerial.println("ERROR: command queue full");
+            }
           }
+          localIndex = 0;
         }
-        // 清空缓冲区
-        localIndex = 0;
+      } else {
+        if (localIndex < SERIAL_BUFFER_SIZE - 1) {
+          localBuffer[localIndex++] = c;
+        } else {
+          localIndex = 0;
+        }
       }
     }
 
@@ -1060,33 +1055,10 @@ void setupEntry() {
   Serial.println(ESP.getChipModel());
   MySerial.println("ready");
 
-
   // 加载设备配置
   loadDeviceConfig();
-
-  // 初始化BLE设备
-  BLEDevice::init(deviceConfig.ap_ssid);
-  pBLEScan = BLEDevice::getScan();
-  pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
-  pBLEScan->setActiveScan(true);
-  pBLEScan->setInterval(100);
-  pBLEScan->setWindow(99);
-
-  // 初始化WiFi 设备
-  WiFi.hostname(deviceConfig.ap_ssid);
-  // 启用自动重连
-  reconnectCount = 0;
-  WiFi.setAutoReconnect(true);
-  WiFi.onEvent(WiFiEvent);
-  WiFi.STA.begin();
-
-  // 创建AP模式
-  WiFi.AP.create(deviceConfig.ap_ssid, deviceConfig.ap_pwd);
-  WiFi.AP.begin();
-
   // 加载WiFi配置
   loadWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
-
   // 加载UART配置
   int uartBaud = 9600;
   int uartDataBits = 8;
@@ -1096,11 +1068,32 @@ void setupEntry() {
   if (loadUartConfig(&uartBaud, &uartDataBits, &uartStopBits, &uartParity, &uartAddr)) {
     sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity, uartAddr);
   }
-
   // 加载BLE列表配置
   if (loadBleListConfig()) {
     sendBleListReport(bleCount);
   }
+
+  // 初始化WiFi 设备
+  WiFi.hostname(deviceConfig.ap_ssid);
+  // 启用自动重连
+  WiFi.setAutoReconnect(true);
+  reconnectCount = 0;
+  WiFi.onEvent(WiFiEvent);
+  // 配置IP地址
+  if (strcmp(deviceConfig.local_ip, "") != 0) {
+    WiFi.config(IPAddress(deviceConfig.local_ip), IPAddress(deviceConfig.gateway_ip), IPAddress(deviceConfig.subnet_mask));
+  }
+  // 创建AP模式
+  WiFi.AP.create(deviceConfig.ap_ssid, deviceConfig.ap_pwd);
+  WiFi.AP.begin();
+
+  // 初始化BLE设备
+  BLEDevice::init(deviceConfig.ap_ssid);
+  pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
+  pBLEScan->setActiveScan(true);
+  pBLEScan->setInterval(100);
+  pBLEScan->setWindow(99);
   
   // 创建命令队列
   commandQueue = xQueueCreate(COMMAND_QUEUE_SIZE, sizeof(CommandMessage));

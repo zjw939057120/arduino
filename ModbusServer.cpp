@@ -9,7 +9,7 @@ void ModbusServerStart() {
 
   // 启动Modbus TCP服务器
   modbusServer.begin(MODBUS_PORT);
-  Serial.println("Modbus server started");
+  Serial.println("MODBUS server started");
 }
 
 void ModbusServerHandler() {
