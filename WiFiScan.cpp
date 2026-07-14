@@ -44,6 +44,8 @@
 #define AT_CMD_UART_DEF "AT+UART_DEF="
 // 获取WiFi状态指令
 #define AT_CMD_CWSTATE "AT+CWSTATE?"
+// 传感器数据指令
+#define AT_CMD_SENSOR "AT+SENSOR="
 
 // 任务句柄
 TaskHandles taskHandles = {NULL};
@@ -64,17 +66,42 @@ Preferences preferences;
 BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
 
-#define MAX_BLE_ADDRESSES 10
-// BLE device MAC addresses
+// BLE设备MAC地址缓冲区
 char bleMacs[MAX_BLE_ADDRESSES][18] = {{0}};
-// BLE device count
+// BLE设备数量
 int bleCount = 0;
-// BLE sensor data buffer
+// BLE传感器数据缓冲区
 struct BLESensorData {
+  // 温度传感器
   uint16_t temp;
+  // 湿度传感器
   uint16_t hum;
 };
+
+// BLE传感器数据缓冲区
 BLESensorData bleSensorData[MAX_BLE_ADDRESSES] = {0};
+// 传感器数据缓冲区
+struct SensorData {
+  // 红外二氧化碳传感器CM1106S
+  uint16_t CO2; // CO2
+  // 甲醛传感器SC11-CH2O
+  uint16_t CH2O; // CH2O
+  // 空气质量传感器MS-VOC-V4
+  uint16_t TVOC; // TVOC
+  // 激光粉尘传感器PM2012SE
+  uint16_t PM25;  // PM2.5 GRIMM
+  uint16_t PM100; // PM10 GRIMM
+  // 温度传感器
+  uint16_t TEMP;
+  // 湿度传感器
+  uint16_t RH;
+  // 激光粉尘传感器PM2012SE
+  uint16_t PM10;  // PM1.0 GRIMM
+  // 传感器类型
+  uint8_t TYPE;
+} Sensor;
+// 传感器数据缓冲区
+SensorData sensorData = {0};
 
 #define FILTER_PARAM_MAX_LEN 20
 int filter_type = 3;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
@@ -355,6 +382,74 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
   if (*addr < 0 || *addr > 255) return false;
 
   return true;
+}
+
+bool parseSensorCommand(char* cmd, SensorData* data) {
+  char* paramStart = cmd + strlen(AT_CMD_SENSOR); // skip "AT+SENSOR="
+
+  // 解析 CO2
+  char* comma = strchr(paramStart, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->CO2 = atoi(paramStart);
+
+  // 解析 CH2O
+  char* token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->CH2O = atoi(token);
+
+  // 解析 TVOC
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->TVOC = atoi(token);
+  
+  // 解析 PM25
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->PM25 = atoi(token);
+  
+  // 解析 PM100
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->PM100 = atoi(token);
+
+  // 解析 TEMP
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->TEMP = atoi(token);
+
+  // 解析 RH
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->RH = atoi(token);
+
+  // 解析 PM10
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  *comma = '\0';
+  data->PM10 = atoi(token);
+
+  // 解析 TYPE
+  token = comma + 1;
+  data->TYPE = atoi(token);
+
+  // Serial.println(String(data->CO2) + "," + String(data->CH2O) + "," + String(data->TVOC) + "," + 
+  //                String(data->PM25) + "," + String(data->PM100) + "," + String(data->TEMP) + ","  + 
+  //                String(data->RH) + "," + String(data->PM10) + ","  + String(data->TYPE));
+   return true;
 }
 
 bool parseBleListCommand(char* cmd, int* count) {
@@ -699,7 +794,7 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     WiFi.begin(wifiConfig.ssid);
     MySerial.println("OK");
 
-    Serial.print("connect to ");
+    Serial.print("connect SSID: ");
     Serial.println(wifiConfig.ssid);
     return;
   } else {
@@ -707,9 +802,9 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
     MySerial.println("OK");
 
-    Serial.print("connect to ");
+    Serial.print("connect SSID: ");
     Serial.print(wifiConfig.ssid);
-    Serial.print(":");
+    Serial.print(" with ");
     Serial.println(wifiConfig.pwd);
   }
   // 启用自动重连
@@ -719,7 +814,6 @@ void DoWiFiConnect(char* ssid, char* pwd) {
 }
 
 void processCommand(char* cmd) {
-  Serial.println(cmd);//串口输出命令
 
   if (strcmp(cmd, AT_CMD_AT) == 0) {
     //测试
@@ -780,6 +874,12 @@ void processCommand(char* cmd) {
   } else if (strcmp(cmd, AT_CMD_CWSTATE) == 0) {
     // 获取WiFi状态
     ATCWState();
+  } else if (strncmp(cmd, AT_CMD_SENSOR, strlen(AT_CMD_SENSOR)) == 0) {
+    // 传感器数据
+    if (parseSensorCommand(cmd, &sensorData)) {
+    } else {
+      MySerial.println("ERROR");
+    }
   } else {
     // 无效指令
     Serial.print("ERROR:");
@@ -1004,7 +1104,8 @@ int sendBleSensorData() {
 
   uint8_t cwState = getATCWState();
   int8_t rssi = WiFi.RSSI();
-  MySerial.printf("+SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum, cwState, rssi);
+  // 发送BLE传感器数据
+  MySerial.printf("+BLE_SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum, cwState, rssi);
   return bleCount;
 }
 
