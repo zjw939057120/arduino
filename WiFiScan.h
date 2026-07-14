@@ -41,10 +41,6 @@ extern TaskHandles taskHandles;
 extern WiFiConfig wifiConfig;
 extern DeviceConfig deviceConfig;
 
-#define MAX_BLE_ADDRESSES 10
-extern BLESensorData bleSensorData[MAX_BLE_ADDRESSES];
-extern SensorData sensorData;
-
 void setupEntry();
 void loopEntry();
 int getEcnValue(wifi_auth_mode_t encryptionType);

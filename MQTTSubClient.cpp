@@ -1,34 +1,40 @@
 #include "MQTTSubClient.h"
 #include "WiFiScan.h"
+#include "Sensor.h"
 
 WiFiClient net;
 MQTTClient client;
-
-unsigned long lastMillis = 0;
-
+// 上次传感器发布时间
+unsigned long lastSensorMillis = 0;
+// 上次设备发布时间
+unsigned long lastDevicePublishMillis = 0;
+// MQTT配置
 MQTTConfig mqttConfig;
+// MQTT消息缓冲区
+char payload_buffer[255];
 
 void connect() {
-  Serial.println("checking wifi");
+  Serial.println("checking wifi status");
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
     delay(5000);// 等待5秒，确保WiFi连接稳定
   }
 
-  Serial.println("MQTT connecting");
+  Serial.println("mqtt connecting");
   while (!client.connect(mqttConfig.clientId.c_str(), mqttConfig.user.c_str(), mqttConfig.password.c_str())) {
     Serial.print(".");
     delay(5000);// 等待5秒，确保MQTT连接稳定
   }
 
-  Serial.println("MQTT connected");
+  Serial.println("mqtt connected");
 
-  client.subscribe(mqttConfig.subTopic.c_str());
-  // client.unsubscribe(mqttConfig.subTopic.c_str());
+  // 订阅主题
+  client.subscribe(MQTT_SERVER_TOPIC_SENSOR);
 }
 
 void messageReceived(String &topic, String &payload) {
-  Serial.println("messageReceived: topic: " + topic + ",payload: " + payload);
+  // 打印收到的消息
+  Serial.println("topic: " + topic + ",payload: " + payload);
 
   // Note: Do not use the client in the callback to publish, subscribe or
   // unsubscribe as it may cause deadlocks when other things arrive while
@@ -38,12 +44,11 @@ void messageReceived(String &topic, String &payload) {
 
 void MQTTSubClientStart() {
   // 配置MQTT客户端参数
-  mqttConfig.host = "8.135.10.183";
-  mqttConfig.port = 23287;
-  mqttConfig.user = "username";
-  mqttConfig.password = "password";
+  mqttConfig.host = MQTT_SERVER_IP;
+  mqttConfig.port = MQTT_SERVER_PORT;
+  mqttConfig.user = MQTT_SERVER_USER;
+  mqttConfig.password = MQTT_SERVER_PASSWORD;
   mqttConfig.clientId = deviceConfig.ap_ssid;
-  mqttConfig.subTopic = "subTopic";
   // WiFi连接
   WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
   delay(5000);// 等待5秒，确保WiFi连接稳定
@@ -61,9 +66,15 @@ void MQTTSubClientHandler() {
     connect();
   }
 
-  // publish a message roughly every five seconds.
-  if (millis() - lastMillis > 5000) {
-    lastMillis = millis();
-    client.publish(mqttConfig.subTopic.c_str(), "world");
+  auto now = millis();
+  if (now - lastSensorMillis > 5000) {
+    // 每5秒发布一次传感器数据
+    lastSensorMillis = now;
+    sprintf(payload_buffer, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+            sensorData.CO2, sensorData.CH2O, sensorData.TVOC, sensorData.PM25, sensorData.PM100, sensorData.TEMP, sensorData.RH, sensorData.PM10, sensorData.TYPE,
+            bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum,
+            bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum);
+    client.publish(MQTT_SERVER_TOPIC_SENSOR, payload_buffer, strlen(payload_buffer));
   }
+
 }

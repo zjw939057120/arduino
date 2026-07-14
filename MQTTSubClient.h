@@ -12,7 +12,6 @@ typedef struct {
     String user;
     String password;
     String clientId;
-    String subTopic;
 } MQTTConfig;
 
 extern MQTTConfig mqttConfig;
@@ -23,4 +22,10 @@ void MQTTSubClientStart();
 
 void MQTTSubClientHandler();
 
-#endif // MQTT_PUB_SUB_CLIENT_H
+// MQTT服务器配置
+#define MQTT_SERVER_IP "8.135.10.183"
+#define MQTT_SERVER_PORT 23287
+#define MQTT_SERVER_USER "username"
+#define MQTT_SERVER_PASSWORD "password"
+#define MQTT_SERVER_TOPIC_SENSOR "sensor"
+#endif // MQTT_SUB_CLIENT_H

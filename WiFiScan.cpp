@@ -13,6 +13,7 @@
 #include "ModbusServer.h"
 #include "HttpServer.h"
 #include "MQTTSubClient.h"
+#include "Sensor.h"
 
 // 串口缓冲区大小
 #define SERIAL_BUFFER_SIZE 255
@@ -65,43 +66,6 @@ int bufferIndex = 0;
 Preferences preferences;
 BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
-
-// BLE设备MAC地址缓冲区
-char bleMacs[MAX_BLE_ADDRESSES][18] = {{0}};
-// BLE设备数量
-int bleCount = 0;
-// BLE传感器数据缓冲区
-struct BLESensorData {
-  // 温度传感器
-  uint16_t temp;
-  // 湿度传感器
-  uint16_t hum;
-};
-
-// BLE传感器数据缓冲区
-BLESensorData bleSensorData[MAX_BLE_ADDRESSES] = {0};
-// 传感器数据缓冲区
-struct SensorData {
-  // 红外二氧化碳传感器CM1106S
-  uint16_t CO2; // CO2
-  // 甲醛传感器SC11-CH2O
-  uint16_t CH2O; // CH2O
-  // 空气质量传感器MS-VOC-V4
-  uint16_t TVOC; // TVOC
-  // 激光粉尘传感器PM2012SE
-  uint16_t PM25;  // PM2.5 GRIMM
-  uint16_t PM100; // PM10 GRIMM
-  // 温度传感器
-  uint16_t TEMP;
-  // 湿度传感器
-  uint16_t RH;
-  // 激光粉尘传感器PM2012SE
-  uint16_t PM10;  // PM1.0 GRIMM
-  // 传感器类型
-  uint8_t TYPE;
-} Sensor;
-// 传感器数据缓冲区
-SensorData sensorData = {0};
 
 #define FILTER_PARAM_MAX_LEN 20
 int filter_type = 3;// 0: no filter, 1: filter by MAC, 2: filter by name, 3: filter by service UUID
@@ -494,8 +458,8 @@ bool parseBleListCommand(char* cmd, int* count) {
       return false;
     }
 
-    strncpy(bleMacs[macIdx], start, 17);
-    bleMacs[macIdx][17] = '\0';
+    strncpy(bleDevice[macIdx], start, 17);
+    bleDevice[macIdx][17] = '\0';
     macIdx++;
 
     if (comma == NULL) {
@@ -521,8 +485,8 @@ void saveBleListConfig() {
     char key[16];
     snprintf(key, sizeof(key), "mac_%d", i);
     tmp = preferences.getString(key, "");
-    if (!tmp.equals(bleMacs[i])) {
-    preferences.putString(key, bleMacs[i]);
+    if (!tmp.equals(bleDevice[i])) {
+    preferences.putString(key, bleDevice[i]);
     }
   }
   preferences.end();
@@ -536,8 +500,8 @@ bool loadBleListConfig() {
     snprintf(key, sizeof(key), "mac_%d", i);
     String value = preferences.getString(key, "");
     if (value.length() > 0) {
-      strncpy(bleMacs[i], value.c_str(), 17);
-      bleMacs[i][17] = '\0';
+      strncpy(bleDevice[i], value.c_str(), 17);
+      bleDevice[i][17] = '\0';
     }
   }
   preferences.end();
@@ -547,8 +511,8 @@ bool loadBleListConfig() {
 void sendBleListReport(int count) {
   MySerial.printf("+BLE_LST:%d", count);
   for (int i = 0; i < count; ++i) {
-    if (bleMacs[i][0] != '\0') {
-      MySerial.printf(",\"%s\"", bleMacs[i]);
+    if (bleDevice[i][0] != '\0') {
+      MySerial.printf(",\"%s\"", bleDevice[i]);
     } else {
       MySerial.print(",\"\"");
     }
@@ -794,7 +758,7 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     WiFi.begin(wifiConfig.ssid);
     MySerial.println("OK");
 
-    Serial.print("connect SSID: ");
+    Serial.print("connect ssid: ");
     Serial.println(wifiConfig.ssid);
     return;
   } else {
@@ -802,9 +766,9 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
     MySerial.println("OK");
 
-    Serial.print("connect SSID: ");
+    Serial.print("connect ssid: ");
     Serial.print(wifiConfig.ssid);
-    Serial.print(" with ");
+    Serial.print(" pwd: ");
     Serial.println(wifiConfig.pwd);
   }
   // 启用自动重连
@@ -1087,7 +1051,7 @@ void ATCWState() {
 
 int findBleDevice(const char* addr) {
   for (int i = 0; i < bleCount; ++i) {
-    if (bleMacs[i][0] != '\0' && strcmp(bleMacs[i], addr) == 0) {
+    if (bleDevice[i][0] != '\0' && strcmp(bleDevice[i], addr) == 0) {
       return i;// 找到匹配的设备，返回索引
     }
   }
@@ -1175,6 +1139,8 @@ void setupEntry() {
   }
 
   // 初始化WiFi 设备
+  WiFi.disconnect();
+  WiFi.mode(WIFI_AP_STA);
   WiFi.hostname(deviceConfig.ap_ssid);
   // 启用自动重连
   WiFi.setAutoReconnect(true);
