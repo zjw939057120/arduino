@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-
+#include "Sensor.h"
 
 typedef struct {
     TaskHandle_t debugSerialTaskHandle;
@@ -49,6 +49,10 @@ void hexToStr(uint8_t* data, int length, char* output);
 bool parseWiFiCommand(char* cmd, char* ssid, char* pwd);
 bool parseBLECommand(char* cmd, int* mode, int* duration, int* filter_type, char* filter_param);
 bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, int* parity, int* addr);
+bool parseSensorCommand(char* cmd, SensorData* data);
+bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* password);
+void saveMQTTConfig(char* ip, int port, char* username, char* password);
+bool loadMQTTConfig(char* ip, int* port, char* username, char* password);
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info);
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr);
 bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* addr);

@@ -7,16 +7,16 @@
 #include <MQTT.h>
 
 typedef struct {
-    String host;
+    char ip[16];
     int port;
-    String user;
-    String password;
-    String clientId;
+    char username[16];
+    char password[16];
+    char clientId[32];
 } MQTTConfig;
 
 extern MQTTConfig mqttConfig;
 
-extern MQTTClient client;
+extern MQTTClient mqttClient;
 
 void MQTTSubClientStart();
 

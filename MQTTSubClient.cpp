@@ -3,7 +3,7 @@
 #include "Sensor.h"
 
 WiFiClient net;
-MQTTClient client;
+MQTTClient mqttClient;
 // 上次传感器发布时间
 unsigned long lastSensorMillis = 0;
 // 上次设备发布时间
@@ -14,22 +14,22 @@ MQTTConfig mqttConfig;
 char payload_buffer[255];
 
 void connect() {
-  Serial.println("checking wifi status");
+  Serial.println(F("checking wifi status"));
   while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
+    Serial.print(F("."));
     delay(5000);// 等待5秒，确保WiFi连接稳定
   }
 
-  Serial.println("mqtt connecting");
-  while (!client.connect(mqttConfig.clientId.c_str(), mqttConfig.user.c_str(), mqttConfig.password.c_str())) {
-    Serial.print(".");
+  Serial.println(F("mqtt connecting"));
+  while (!mqttClient.connect(mqttConfig.clientId, mqttConfig.username, mqttConfig.password)) {
+    Serial.print(F("."));
     delay(5000);// 等待5秒，确保MQTT连接稳定
   }
 
-  Serial.println("mqtt connected");
+  Serial.println(F("mqtt connected"));
 
   // 订阅主题
-  client.subscribe(MQTT_SERVER_TOPIC_SENSOR);
+  mqttClient.subscribe(MQTT_SERVER_TOPIC_SENSOR);
 }
 
 void messageReceived(String &topic, String &payload) {
@@ -44,25 +44,23 @@ void messageReceived(String &topic, String &payload) {
 
 void MQTTSubClientStart() {
   // 配置MQTT客户端参数
-  mqttConfig.host = MQTT_SERVER_IP;
-  mqttConfig.port = MQTT_SERVER_PORT;
-  mqttConfig.user = MQTT_SERVER_USER;
-  mqttConfig.password = MQTT_SERVER_PASSWORD;
-  mqttConfig.clientId = deviceConfig.ap_ssid;
-  // WiFi连接
-  WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
+  // strcpy(mqttConfig.ip, MQTT_SERVER_IP);
+  // mqttConfig.port = MQTT_SERVER_PORT;
+  // strcpy(mqttConfig.username, MQTT_SERVER_USERNAME);
+  // strcpy(mqttConfig.password, MQTT_SERVER_PASSWORD);
+  // strcpy(mqttConfig.clientId, deviceConfig.ap_ssid);
   delay(5000);// 等待5秒，确保WiFi连接稳定
   // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported
   // by Arduino. You need to set the IP address directly.
-  client.begin(mqttConfig.host.c_str(), mqttConfig.port, net);
-  client.onMessage(messageReceived);
+  mqttClient.begin(mqttConfig.ip, mqttConfig.port, net);
+  mqttClient.onMessage(messageReceived);
   connect();
 }
 
 void MQTTSubClientHandler() {
-  client.loop();
+  mqttClient.loop();
 
-  if (!client.connected()) {
+  if (!mqttClient.connected()) {
     connect();
   }
 
@@ -70,11 +68,11 @@ void MQTTSubClientHandler() {
   if (now - lastSensorMillis > 5000) {
     // 每5秒发布一次传感器数据
     lastSensorMillis = now;
-    sprintf(payload_buffer, "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d",
+    sprintf(payload_buffer, "[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
             sensorData.CO2, sensorData.CH2O, sensorData.TVOC, sensorData.PM25, sensorData.PM100, sensorData.TEMP, sensorData.RH, sensorData.PM10, sensorData.TYPE,
             bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum,
             bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum);
-    client.publish(MQTT_SERVER_TOPIC_SENSOR, payload_buffer, strlen(payload_buffer));
+    mqttClient.publish(MQTT_SERVER_TOPIC_SENSOR, payload_buffer, strlen(payload_buffer));
   }
 
 }
