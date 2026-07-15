@@ -14,14 +14,8 @@ MQTTConfig mqttConfig;
 char payload_buffer[255];
 
 void connect() {
-  Serial.println(F("checking wifi status"));
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(F("."));
-    delay(5000);// 等待5秒，确保WiFi连接稳定
-  }
-
   Serial.println(F("mqtt connecting"));
-  while (!mqttClient.connect(mqttConfig.clientId, mqttConfig.username, mqttConfig.password)) {
+  while (WiFi.status() != WL_CONNECTED || !mqttClient.connect(mqttConfig.clientId, mqttConfig.username, mqttConfig.password)) {
     Serial.print(F("."));
     delay(5000);// 等待5秒，确保MQTT连接稳定
   }

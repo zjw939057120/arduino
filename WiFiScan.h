@@ -13,6 +13,7 @@ typedef struct {
     TaskHandle_t modbusTaskHandle;
     TaskHandle_t httpServerTaskHandle;
     TaskHandle_t commandTaskHandle;
+    TaskHandle_t networkTaskHandle;
     TaskHandle_t miscTaskHandle;
 
 } TaskHandles;
@@ -27,9 +28,6 @@ typedef struct {
   char gateway_ip[16];//网关IP地址
   char subnet_mask[16];//子网掩码
   char dns_ip[16];//DNS服务器IP地址
-  bool modbusDisabled;//MODBUS服务器是否禁用
-  bool httpDisabled;//HTTP服务器是否禁用
-  bool mqttDisabled;//MQTT服务器是否禁用
 
   //AP配置
   char ap_ssid[33];//AP无线网络名称
@@ -72,10 +70,10 @@ void ModbusServerTask(void* pvParameters);
 void HttpServerTask(void* pvParameters);
 void MQTTSubClientTask(void* pvParameters);
 void CommandTask(void* pvParameters);
+void NetworkTask(void* pvParameters);
 void MiscTask(void* pvParameters);
 bool parseBleListCommand(char* cmd, int* count);
 void saveBleListConfig();
-bool loadBleListConfig();
 void sendBleListReport(int count);
 uint8_t getATCWState();
 void ATCWState();

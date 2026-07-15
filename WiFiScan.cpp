@@ -57,8 +57,6 @@ TaskHandles taskHandles = {NULL};
 WiFiConfig wifiConfig;
 // 设备配置
 DeviceConfig deviceConfig;
-// 重连次数
-uint8_t reconnectCount = 0;
 
 typedef struct {
   char cmd[SERIAL_BUFFER_SIZE];
@@ -599,23 +597,12 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
     //禁用自动重连
     WiFi.setAutoReconnect(false);
-    // 重置重连次数
-    reconnectCount = 0;
     MySerial.println(F("WIFI CONNECTED"));
     saveWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
   }
   break;
   case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
   {
-    // 累计重连次数
-    if (reconnectCount > 6) {
-      // 重连次数超过 6 次
-      WiFi.setAutoReconnect(false);
-    } else {
-      WiFi.setAutoReconnect(true);
-      reconnectCount++;
-    }
-
     MySerial.println(F("WIFI DISCONNECTED"));
     int errorCode = 5;
     switch (info.wifi_sta_disconnected.reason) {
@@ -753,12 +740,6 @@ void loadDeviceConfig() {
   // 加载DNS服务器IP地址
   strncpy(deviceConfig.dns_ip, preferences.getString("dns_ip", "").c_str(), 16);
   deviceConfig.dns_ip[15] = '\0';
-  // 加载MODBUS服务器是否禁用
-  deviceConfig.modbusDisabled = preferences.getBool("modbusDisabled", false);
-  // 加载HTTP服务器是否禁用
-  deviceConfig.httpDisabled = preferences.getBool("httpDisabled", false);
-  // 加载MQTT服务器是否禁用
-  deviceConfig.mqttDisabled = preferences.getBool("mqttDisabled", false);
   preferences.end();
 
   // 加载AP配置
@@ -863,10 +844,6 @@ void DoWiFiConnect(char* ssid, char* pwd) {
     Serial.print(" pwd: ");
     Serial.println(wifiConfig.pwd);
   }
-  // 启用自动重连
-  WiFi.setAutoReconnect(true);
-  // 重置重连次数
-  reconnectCount = 0;
 }
 
 void processCommand(char* cmd) {
@@ -1082,6 +1059,18 @@ void CommandTask(void* pvParameters) {
   }
 }
 
+// FreeRTOS任务函数，用于处理网络状态
+void NetworkTask(void* pvParameters) {
+  delay(10000);// 延迟10秒后开始处理网络状态
+  while (true) {
+    if(WiFi.status() != WL_CONNECTED) {
+      WiFi.disconnect();
+      WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
+    }
+    delay(10000);
+  }
+}
+
 // FreeRTOS任务函数，用于处理其他任务
 void MiscTask(void* pvParameters) {
   while (true) {
@@ -1245,14 +1234,14 @@ void setupEntry() {
   WiFi.setSleep(false);
   WiFi.mode(WIFI_AP_STA);
   WiFi.hostname(deviceConfig.ap_ssid);
-  // 启用自动重连
-  WiFi.setAutoReconnect(true);
-  reconnectCount = 0;
+  // 禁用自动重连
+  WiFi.setAutoReconnect(false);
   WiFi.onEvent(WiFiEvent);
   // 配置IP地址
   if (strcmp(deviceConfig.local_ip, "") != 0) {
     WiFi.config(IPAddress(deviceConfig.local_ip), IPAddress(deviceConfig.gateway_ip), IPAddress(deviceConfig.subnet_mask));
   }
+  WiFi.begin(wifiConfig.ssid, wifiConfig.pwd);
   
   // 创建AP模式
   WiFi.AP.create(deviceConfig.ap_ssid, deviceConfig.ap_pwd);
@@ -1280,22 +1269,18 @@ void setupEntry() {
     // BLE任务
     xTaskCreate(BLESensorTask, "BLESensor", 4096, NULL, 1, &taskHandles.bleTaskHandle);
     // Modbus任务
-    if (!deviceConfig.modbusDisabled) {
-      xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, &taskHandles.modbusTaskHandle);
-    }
+    xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, &taskHandles.modbusTaskHandle);
     // HTTP任务
-    if (!deviceConfig.httpDisabled) {
-      xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, &taskHandles.httpServerTaskHandle);
-    }
+    xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, &taskHandles.httpServerTaskHandle);
     // MQTT任务
-    if (!deviceConfig.mqttDisabled) {
-      if(loadMQTTConfig(mqttConfig.ip, &mqttConfig.port, mqttConfig.username, mqttConfig.password)) {
-        xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, &taskHandles.mqttTaskHandle);
-      }
+    if(loadMQTTConfig(mqttConfig.ip, &mqttConfig.port, mqttConfig.username, mqttConfig.password)) {
+      xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, &taskHandles.mqttTaskHandle);
     }
     // 命令任务
-    xTaskCreate(CommandTask, "Command", 8192, NULL, 1, &taskHandles.commandTaskHandle);
-    // 其他任务
+    xTaskCreate(CommandTask, "Command", 4096, NULL, 1, &taskHandles.commandTaskHandle);
+    // 网络任务
+    xTaskCreate(NetworkTask, "Network", 4096, NULL, 1, &taskHandles.networkTaskHandle);
+    // 杂项任务
     xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
   }
 }
