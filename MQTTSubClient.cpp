@@ -38,11 +38,7 @@ void messageReceived(String &topic, String &payload) {
 
 void MQTTSubClientStart() {
   // 配置MQTT客户端参数
-  // strcpy(mqttConfig.ip, MQTT_SERVER_IP);
-  // mqttConfig.port = MQTT_SERVER_PORT;
-  // strcpy(mqttConfig.username, MQTT_SERVER_USERNAME);
-  // strcpy(mqttConfig.password, MQTT_SERVER_PASSWORD);
-  // strcpy(mqttConfig.clientId, deviceConfig.ap_ssid);
+  strcpy(mqttConfig.clientId, deviceConfig.ap_ssid);
   delay(5000);// 等待5秒，确保WiFi连接稳定
   // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported
   // by Arduino. You need to set the IP address directly.
