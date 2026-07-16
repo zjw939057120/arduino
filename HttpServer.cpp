@@ -1,5 +1,6 @@
 #include "HttpServer.h"
 #include "WiFiScan.h"
+#include "Device.h"
 
 WebServer httpServer;
 

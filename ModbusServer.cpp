@@ -1,6 +1,7 @@
 #include "ModbusServer.h"
 #include <ESPmDNS.h>
 #include "WiFiScan.h"
+#include "Device.h"
 
 NetworkServer modbusServer;
 

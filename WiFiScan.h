@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include "Sensor.h"
+#include "Device.h"
 
 typedef struct {
     TaskHandle_t debugSerialTaskHandle;
@@ -15,13 +15,12 @@ typedef struct {
     TaskHandle_t commandTaskHandle;
     TaskHandle_t networkTaskHandle;
     TaskHandle_t miscTaskHandle;
-
-} TaskHandles;
+} TaskHandles;// 任务句柄结构体，用于存储所有任务的句柄
 
 typedef struct {
   char ssid[33];//当前连接的无线网络名称
   char pwd[65];//当前连接的无线网络密码
-} WiFiConfig;
+} WiFiConfig;// WiFi配置结构体，用于存储当前连接的无线网络名称和密码
 
 typedef struct {
   char local_ip[16];//设备IP地址
@@ -33,11 +32,18 @@ typedef struct {
   char ap_ssid[33];//AP无线网络名称
   char ap_pwd[65];//AP无线网络密码
   char mac[18];//MAC地址
-} DeviceConfig;
+} DeviceConfig;// 设备配置结构体，用于存储设备的IP地址、网关IP地址、子网掩码、DNS服务器IP地址、AP无线网络名称、AP无线网络密码、MAC地址
+
+typedef struct {
+  bool ble_scaning;         // BLE扫描状态
+  bool wifi_scaning;        // WiFi扫描状态
+  uint8_t wifi_check_count; // WiFi检查次数，用于判断是否需要重新连接WiFi
+} DeviceStatus;// 设备状态结构体，用于存储设备的BLE扫描状态、WiFi扫描状态和WiFi检查次数
 
 extern TaskHandles taskHandles;
 extern WiFiConfig wifiConfig;
 extern DeviceConfig deviceConfig;
+extern DeviceStatus deviceStatus;
 
 void setupEntry();
 void loopEntry();

@@ -1,4 +1,3 @@
-#include "Config.h"
 #include "WiFiScan.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -59,13 +58,16 @@ TaskHandles taskHandles = {NULL,NULL, NULL,NULL, NULL, NULL};
 WiFiConfig wifiConfig;
 // 设备配置
 DeviceConfig deviceConfig;
+// 设备状态
+DeviceStatus deviceStatus = {false, false, 0};
+// 串口
+HardwareSerial MySerial(1);
 
 typedef struct {
   char cmd[SERIAL_BUFFER_SIZE];
 } CommandMessage;
 
 char serialBuffer[SERIAL_BUFFER_SIZE];
-int bufferIndex = 0;
 Preferences preferences;
 BLEScan* pBLEScan;
 static QueueHandle_t commandQueue = NULL;
@@ -144,13 +146,6 @@ public:
     bleSensorData[index].hum = ((uint8_t)advData[advLen - 1] << 8) | (uint8_t)advData[advLen - 2];
   }
 };
-
-
-// BLE扫描状态
-bool ble_scaning = false;
-bool wifi_scaning = false;
-// WiFi检查次数
-uint8_t wifi_check_count = 0;
 
 // BLE扫描回调
 MyBLEScanCallback bleScanCallback;
@@ -909,7 +904,7 @@ void ScanWiFi() {
 }
 
 void DoBLEScan(int duration) {
-  ble_scaning = true;
+  deviceStatus.ble_scaning = true;
   pBLEScan->stop();
   delay(10);
   // 设置扫描回调函数
@@ -918,7 +913,7 @@ void DoBLEScan(int duration) {
 
   // 等待扫描完成
   MySerial.println("+BLESCANDONE");
-  ble_scaning = false;
+  deviceStatus.ble_scaning = false;
 }
 
 void DoWiFiConnect(char* ssid, char* pwd) {
@@ -935,7 +930,7 @@ void DoWiFiConnect(char* ssid, char* pwd) {
   // 连接WiFi
   wifiConnect();
   // 重置WiFi检查次数
-  wifi_check_count = 0;
+  deviceStatus.wifi_check_count = 0;
   MySerial.println("OK");
 
   Serial.print("connect ssid: ");
@@ -957,10 +952,10 @@ void processCommand(char* cmd) {
     delay(1000);
     ESP.restart();
   } else if (strcmp(cmd, AT_CMD_CWLWAP) == 0) {
-    wifi_scaning = true;
+    deviceStatus.wifi_scaning = true;
     // 获取WiFi列表
     ScanWiFi();
-    wifi_scaning = false;
+    deviceStatus.wifi_scaning = false;
   } else if (strncmp(cmd, AT_CMD_CWJAP, strlen(AT_CMD_CWJAP)) == 0) {
     //连接WiFi
     char ssid[33];
@@ -1046,7 +1041,7 @@ void processCommand(char* cmd) {
       // 连接WiFi
       wifiConnect();
       // 重置WiFi检查次数
-      wifi_check_count = 0;
+      deviceStatus.wifi_check_count = 0;
     } else {
       // 设备配置错误
       MySerial.println(F("ERROR"));
@@ -1060,7 +1055,7 @@ void processCommand(char* cmd) {
   }
 }
 
-// FreeRTOS任务函数，用于处理串口输入并将命令发送到队列
+// DebugSerial任务函数，用于处理串口输入并将命令发送到队列
 void DebugSerialTask(void* pvParameters) {
   char localBuffer[SERIAL_BUFFER_SIZE];
   int localIndex = 0;
@@ -1098,7 +1093,7 @@ void DebugSerialTask(void* pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于处理MySerial输入并将命令发送到队列
+// MySerial任务函数，用于处理MySerial输入并将命令发送到队列
 void MySerialTask(void* pvParameters) {
   char localBuffer[SERIAL_BUFFER_SIZE];
   int localIndex = 0;
@@ -1136,14 +1131,14 @@ void MySerialTask(void* pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于处理传感器数据
+// BLE传感器任务函数，用于处理传感器数据
 void BLESensorTask(void* pvParameters) {
   while (true) {
-    delay(3000); // 延迟3秒后开始处理传感器数据
+    delay(5000);// 每5秒处理一次传感器数据
     if (bleCount == 0) {
       continue; // 如果没有配置BLE传感器，则跳过本次循环
     }
-    else if (ble_scaning) {
+    else if (deviceStatus.ble_scaning) {
       continue; // 如果正在扫描BLE设备，则跳过本次循环
     }
     // 设置回调函数
@@ -1154,7 +1149,7 @@ void BLESensorTask(void* pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于处理Modbus TCP连接
+// Modbus TCP任务函数，用于处理Modbus TCP连接
 void ModbusServerTask(void *pvParameters) {
   ModbusServerStart();
   while (true) {
@@ -1162,7 +1157,7 @@ void ModbusServerTask(void *pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于处理HTTP连接
+// HTTP任务函数，用于处理HTTP连接
 void HttpServerTask(void *pvParameters) {
   HttpServerStart();
   while (true) {
@@ -1170,7 +1165,7 @@ void HttpServerTask(void *pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于处理MQTT连接
+// MQTT任务函数，用于处理MQTT连接
 void MQTTSubClientTask(void *pvParameters) {
   MQTTSubClientStart();
   while (true) {
@@ -1178,7 +1173,7 @@ void MQTTSubClientTask(void *pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于从队列中接收命令并处理
+// 命令任务函数，用于从队列中接收命令并处理
 void CommandTask(void* pvParameters) {
   CommandMessage msg;
   while (true) {
@@ -1188,31 +1183,31 @@ void CommandTask(void* pvParameters) {
   }
 }
 
-// FreeRTOS任务函数，用于处理网络状态
+// 网络任务函数，用于处理网络状态检查
 void NetworkTask(void* pvParameters) {
   while (true) {
     // 每10秒检查一次网络状态
     delay(10000);
     if(WiFi.status() != WL_CONNECTED) {
-      if(wifi_scaning) {
+      if(deviceStatus.wifi_scaning) {
         continue;
-      } else if(wifi_check_count >= 3) {
-        // 连接失败超过3次，认为连接失败
+      } else if(deviceStatus.wifi_check_count >= 2) {
+        // 连接失败超过2次，认为连接失败
         continue;
       }
       // 设置设备信息
       configStation();
       // 连接WiFi
       wifiConnect();
-      wifi_check_count++;
+      deviceStatus.wifi_check_count++;
     }
   }
 }
 
-// FreeRTOS任务函数，用于处理其他任务
+// 其他任务函数，用于处理其他任务，如关闭AP模式
 void MiscTask(void* pvParameters) {
   while (true) {
-    delay(10 * 60 * 1000); // 延迟10分钟后开始处理其他任务
+    delay(10 * 60 * 1000);// 每10分钟处理一次其他任务
     // 关闭AP模式
     WiFi.AP.end();
     // 删除任务
@@ -1379,7 +1374,7 @@ void setupEntry() {
   // 连接WiFi
   wifiConnect();
   // 重置WiFi检查次数
-  wifi_check_count = 0;
+  deviceStatus.wifi_check_count = 0;
 
   // 创建AP模式
   WiFi.AP.create(deviceConfig.ap_ssid, deviceConfig.ap_pwd);
@@ -1418,7 +1413,7 @@ void setupEntry() {
     xTaskCreate(CommandTask, "Command", 4096, NULL, 1, &taskHandles.commandTaskHandle);
     // 网络任务
     xTaskCreate(NetworkTask, "Network", 4096, NULL, 1, &taskHandles.networkTaskHandle);
-    // 杂项任务
+    // 其他任务
     xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
   }
 }

@@ -1,4 +1,4 @@
-#include "Sensor.h"
+#include "Device.h"
 
 // BLE设备MAC地址缓冲区
 char bleDevice[MAX_BLE_ADDRESSES][18] = {{0}};

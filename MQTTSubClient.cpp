@@ -1,6 +1,6 @@
 #include "MQTTSubClient.h"
 #include "WiFiScan.h"
-#include "Sensor.h"
+#include "Device.h"
 
 WiFiClient net;
 MQTTClient mqttClient;

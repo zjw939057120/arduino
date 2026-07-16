@@ -1,5 +1,5 @@
-#ifndef SENSOR_H
-#define SENSOR_H
+#ifndef DEVICE_H
+#define DEVICE_H
 
 #include <Arduino.h>
 
@@ -38,4 +38,4 @@ extern int bleCount;
 extern BLESensorData bleSensorData[MAX_BLE_ADDRESSES];
 extern SensorData sensorData;
 
-#endif // SENSOR_H
+#endif // DEVICE_H
