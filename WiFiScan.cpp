@@ -513,7 +513,7 @@ bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* pass
   token = comma + 1;
   comma = strchr(token, ',');
   if (comma != NULL) return false;
-  if(*token == '"') {
+  else if(*token == '"') {
     // 跳过双引号
     token++;
     char* end = token + strlen(token);
@@ -766,8 +766,9 @@ bool parseDeviceConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char*
   else if(*token == '"') {
     // 跳过双引号
     token++;
-    char* end = token + strlen(token);
-    *(end - 1) = '\0';
+    *(comma - 1) = '\0';
+  }else {
+    *comma = '\0';
   }
   strncpy(subnet_mask, token, 15);
   subnet_mask[15] = '\0';
@@ -775,7 +776,7 @@ bool parseDeviceConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char*
   token = comma + 1;
   comma = strchr(token, ',');
   if (comma != NULL) return false;
-  if(*token == '"') {
+  else if(*token == '"') {
     // 跳过双引号
     token++;
     char* end = token + strlen(token);
@@ -843,7 +844,7 @@ void configStation(){
   WiFi.hostname(deviceConfig.ap_ssid);
   // 配置静态IP地址
   if (strcmp(deviceConfig.local_ip, "") != 0 && strcmp(deviceConfig.gateway_ip, "") != 0 && strcmp(deviceConfig.subnet_mask, "") != 0 && strcmp(deviceConfig.dns_ip, "") != 0) {
-    WiFi.config(IPAddress(deviceConfig.local_ip), IPAddress(deviceConfig.gateway_ip), IPAddress(deviceConfig.subnet_mask));
+    WiFi.config(IPAddress(deviceConfig.local_ip), IPAddress(deviceConfig.gateway_ip), IPAddress(deviceConfig.subnet_mask), IPAddress(deviceConfig.dns_ip));
   }
 }
 
