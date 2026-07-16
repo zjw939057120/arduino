@@ -1415,7 +1415,7 @@ void setupEntry() {
     // 网络任务
     xTaskCreate(NetworkTask, "Network", 4096, NULL, 1, &taskHandles.networkTaskHandle);
     // 其他任务
-    xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
+    // xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
   }
 }
 
