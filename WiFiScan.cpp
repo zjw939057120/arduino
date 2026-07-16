@@ -681,7 +681,7 @@ bool loadMQTTConfig(char* ip, int* port, char* username, char* password) {
 }
 
 void sendMQTTConfigReport(char* ip, int port, char* username, char* password){
-  MySerial.printf("+MQTT_DEF:\"%s\",\"%d\",\"%s\",\"%s\"\r\n", ip, port, username, password);
+  MySerial.printf("+MQTT_DEF:\"%s\",%d,\"%s\",\"%s\"\r\n", ip, port, username, password);
 }
 
 bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* addr) {
@@ -1020,8 +1020,8 @@ void processCommand(char* cmd) {
     if (parseMQTTCommand(cmd, ip, &port, username, password)) {
       saveMQTTConfig(ip, port, username, password);
       sendMQTTConfigReport(ip, port, username, password);
-
-      mqttClient.disconnect();
+      // 重新连接MQTT服务器
+      MQTTSubClientReConnect();
     } else {
       // MQTT配置错误
       MySerial.println(F("ERROR"));

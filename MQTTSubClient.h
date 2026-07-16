@@ -22,6 +22,9 @@ void MQTTSubClientStart();
 
 void MQTTSubClientHandler();
 
+// 重新连接MQTT服务器
+void MQTTSubClientReConnect();
+
 // MQTT服务器配置
 // #define MQTT_SERVER_IP "8.135.10.183"
 // #define MQTT_SERVER_PORT 23287

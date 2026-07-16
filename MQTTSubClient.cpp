@@ -13,11 +13,11 @@ MQTTConfig mqttConfig;
 // MQTT消息缓冲区
 char payload_buffer[255];
 
-void connect() {
-  Serial.println(F("mqtt connecting"));
+void MQTTSubClientConnect() {
+  Serial.printf("mqtt connecting with %s,%d,%s,%s\r\n",mqttConfig.ip, mqttConfig.port, mqttConfig.username, mqttConfig.password);
   while (WiFi.status() != WL_CONNECTED || !mqttClient.connect(mqttConfig.clientId, mqttConfig.username, mqttConfig.password)) {
     Serial.print(F("."));
-    delay(5000);// 等待5秒，确保MQTT连接稳定
+    delay(10000);// 等待10秒，确保MQTT连接稳定
   }
 
   Serial.println(F("mqtt connected"));
@@ -44,14 +44,14 @@ void MQTTSubClientStart() {
   // by Arduino. You need to set the IP address directly.
   mqttClient.begin(mqttConfig.ip, mqttConfig.port, net);
   mqttClient.onMessage(messageReceived);
-  connect();
+  MQTTSubClientConnect();
 }
 
 void MQTTSubClientHandler() {
   mqttClient.loop();
 
   if (!mqttClient.connected()) {
-    connect();
+    MQTTSubClientConnect();
   }
 
   auto now = millis();
@@ -65,4 +65,9 @@ void MQTTSubClientHandler() {
     mqttClient.publish(MQTT_SERVER_TOPIC_SENSOR, payload_buffer, strlen(payload_buffer));
   }
 
+}
+
+void MQTTSubClientReConnect() {
+  mqttClient.begin(mqttConfig.ip, mqttConfig.port, net);
+  mqttClient.disconnect();
 }
