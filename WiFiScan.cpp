@@ -642,20 +642,20 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
   preferences.begin(NVS_UART_NAMESPACE, false);
-  if (preferences.getInt("baud", 115200) != baud) {
-    preferences.putInt("baud", baud);
+  if (preferences.getInt("baud", 9600) != baud) {
+    preferences.putInt("baud", baud);// 保存波特率
   }
   if (preferences.getInt("data_bits", 8) != dataBits) {
-    preferences.putInt("data_bits", dataBits);
+    preferences.putInt("data_bits", dataBits);// 保存数据位
   }
   if (preferences.getInt("stop_bits", 1) != stopBits) {
-    preferences.putInt("stop_bits", stopBits);
+    preferences.putInt("stop_bits", stopBits);// 保存停止位
   }
   if (preferences.getInt("parity", 0) != parity) {
-    preferences.putInt("parity", parity);
+    preferences.putInt("parity", parity);// 保存校验位
   }
-  if (preferences.getInt("addr", 0) != addr) {
-    preferences.putInt("addr", addr);
+  if (preferences.getInt("addr", 1) != addr) {
+    preferences.putInt("addr", addr);// 保存地址
   }
   preferences.end();
 }
@@ -686,11 +686,11 @@ void sendMQTTConfigReport(char* ip, int port, char* username, char* password){
 
 bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* addr) {
   preferences.begin(NVS_UART_NAMESPACE, true);
-  *baud = preferences.getInt("baud", 9600);
-  *dataBits = preferences.getInt("data_bits", 8);
-  *stopBits = preferences.getInt("stop_bits", 1);
-  *parity = preferences.getInt("parity", 0);
-  *addr = preferences.getInt("addr", 0);
+  *baud = preferences.getInt("baud", 9600);// 读取波特率
+  *dataBits = preferences.getInt("data_bits", 8);// 读取数据位
+  *stopBits = preferences.getInt("stop_bits", 1);// 读取停止位
+  *parity = preferences.getInt("parity", 0);// 读取校验位
+  *addr = preferences.getInt("addr", 1);// 读取地址
   preferences.end();
 
   return true;
@@ -992,9 +992,9 @@ void processCommand(char* cmd) {
     }
   } else if (strncmp(cmd, AT_CMD_UART_DEF, strlen(AT_CMD_UART_DEF)) == 0) {
     //设置串口参数
-    int baud = 115200;
-    int dataBits = 8;
-    int stopBits = 1;
+    int baud = 0;
+    int dataBits = 0;
+    int stopBits = 0;
     int parity = 0;
     int addr = 0;
 
@@ -1208,12 +1208,15 @@ void NetworkTask(void* pvParameters) {
 // 其他任务函数，用于处理其他任务，如关闭AP模式
 void MiscTask(void* pvParameters) {
   while (true) {
-    delay(10 * 60 * 1000);// 每10分钟处理一次其他任务
+    delay(3 * 60 * 1000);// 每3分钟处理一次其他任务
     // 关闭AP模式
     WiFi.AP.end();
+    // 删除HTTP任务
+    vTaskDelete(taskHandles.httpServerTaskHandle);
+    taskHandles.httpServerTaskHandle = NULL;
     // 删除任务
-    taskHandles.miscTaskHandle = NULL;
     vTaskDelete(NULL);
+    taskHandles.miscTaskHandle = NULL;
   }
 }
 
@@ -1415,7 +1418,7 @@ void setupEntry() {
     // 网络任务
     xTaskCreate(NetworkTask, "Network", 4096, NULL, 1, &taskHandles.networkTaskHandle);
     // 其他任务
-    // xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
+    xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
   }
 }
 

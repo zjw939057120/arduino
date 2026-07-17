@@ -5,12 +5,6 @@
 
 WebServer webServer;
 
-static const char responsePortal[] = R"===(
-<!DOCTYPE html><html><head><title>ESP32 CaptivePortal</title></head><body>
-<h1>Hello World!</h1><p>This is a captive portal example page. All unknown http requests will
-be redirected here.</p></body></html>
-)===";
-
 // handle root path
 void handleRoot() {
   webServer.send_P(200, HTTP_TYPE_HTML, INDEX_HTML);
@@ -43,13 +37,27 @@ void HttpServerStart() {
   webServer.enableCORS();
   // 处理根路径
   webServer.on("/", handleRoot);
-  // 处理门户路径
-  webServer.on("/portal", []() {
-    webServer.send(200, HTTP_TYPE_HTML, responsePortal);
-  });
-
+  // 首页
+  webServer.on("/home", HTTP_GET, handleRequestHome_GET);
+  webServer.on("/home", HTTP_POST, handleRequestHome_POST);
+  // 地址设置
   webServer.on("/address", HTTP_GET, handleRequestAddress_GET);
   webServer.on("/address", HTTP_POST, handleRequestAddress_POST);
+  // 报警阀值
+  webServer.on("/alarm", HTTP_GET, handleRequestAlarm_GET);
+  webServer.on("/alarm", HTTP_POST, handleRequestAlarm_POST);
+  // 无线设置
+  webServer.on("/wifi", HTTP_GET, handleRequestWifi_GET);
+  webServer.on("/wifi", HTTP_POST, handleRequestWifi_POST);
+  // 蓝牙设置
+  webServer.on("/ble", HTTP_GET, handleRequestBle_GET);
+  webServer.on("/ble", HTTP_POST, handleRequestBle_POST);
+  // 网络设置
+  webServer.on("/network", HTTP_GET, handleRequestNetwork_GET);
+  webServer.on("/network", HTTP_POST, handleRequestNetwork_POST);
+  // 服务设置
+  webServer.on("/service", HTTP_GET, handleRequestService_GET);
+  webServer.on("/service", HTTP_POST, handleRequestService_POST);
   // 处理未找到的路径
   webServer.onNotFound(handleNotFound);
   // 启动HTTP服务器
@@ -62,7 +70,38 @@ void HttpServerHandler() {
   delay(5); // give CPU some idle time
 }
 
+// 首页
+void handleRequestHome_GET() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestHome_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+
+void handleRequestHome_GET_Handler(char *content, int size) {
+  // wifi状态
+  uint8_t cwState = getATCWState();
+  snprintf(content, size, "{\"code\":0,\"status\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"localIP\":\"%s\",\"gatewayIP\":\"%s\",\"subnetMask\":\"%s\",\"bssid\":\"%s\",\"dnsIP\":\"%s\"}",
+           cwState,
+           WiFi.SSID().c_str(),
+           WiFi.RSSI(),
+           WiFi.localIP().toString().c_str(),
+           WiFi.gatewayIP().toString().c_str(),
+           WiFi.subnetMask().toString().c_str(),
+           deviceConfig.mac,
+           WiFi.dnsIP().toString().c_str());
+}
+void handleRequestHome_POST() {
+}
+
+// 地址设置
 void  handleRequestAddress_GET() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestAddress_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+void handleRequestAddress_GET_Handler(char *content, int size) {
   // 加载UART配置
     int addr = 0;
     int baud = 0;
@@ -72,12 +111,8 @@ void  handleRequestAddress_GET() {
     loadUartConfig(&baud, &databits, &stopbits, &parity, &addr);
 
     // 构建JSON响应
-    char response[HTTP_CONTENT_LENGTH];
-    snprintf(response, sizeof(response), "{\"code\":0,\"addr\":%d,\"baud\":%d,\"databits\":%d,\"parity\":%d,\"stopbits\":%d}", addr, baud, databits, parity, stopbits);
-    // 发送JSON的响应
-    webServer.send(200, HTTP_TYPE_JSON, response);
+    snprintf(content, size, "{\"code\":0,\"addr\":%d,\"baud\":%d,\"databits\":%d,\"parity\":%d,\"stopbits\":%d}", addr, baud, databits, parity, stopbits);
 }
-
 void handleRequestAddress_POST() {
     // 提取各个表单字段的值
     int addr = webServer.arg("addr").toInt();
@@ -87,27 +122,30 @@ void handleRequestAddress_POST() {
     int stopbits = webServer.arg("stopbits").toInt();
 
     if (addr < 0 || addr > 255) {
-      webServer.send(200, HTTP_TYPE_JSON, "{\"code\":1,\"msg\":\"Invalid Address\"}");
+      // 通讯地址范围0-255
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Address\"}"));
       return;
     } else if (baud < 0 || baud > 115200) {
-      webServer.send(200, HTTP_TYPE_JSON, "{\"code\":1,\"msg\":\"Invalid Baud Rate\"}");
+      // 波特率范围80-5000000
+      // 5000000=5Mbps
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Baud Rate\"}"));
       return;
-    } else if (databits < 5 || databits > 8) {
-      webServer.send(200, HTTP_TYPE_JSON, "{\"code\":1,\"msg\":\"Invalid Dataatabits\"}");
+    } else if (databits < 5 || databits > 9) {
+      // 数据位范围5-9
+      // 5bit,6bit,7bit,8bit,9bit
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Dataatabits\"}"));
       return;
     } else if (parity < 0 || parity > 1) {
-      webServer.send(200, HTTP_TYPE_JSON, "{\"code\":1,\"msg\":\"Invalid Parity\"}");
+      // 校验位范围0-1
+      // 0=None,1=Odd,2=Even
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Parity\"}"));
       return;
-    } else if (stopbits < 0 || stopbits > 1) {
-      webServer.send(200, HTTP_TYPE_JSON, "{\"code\":1,\"msg\":\"Invalid Stopbits\"}");
+    } else if (stopbits < 0 || stopbits > 3) {
+      // 停止位范围0-3
+      // 1=1bit,2=1.5bit,3=2bit
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Stopbits\"}"));
       return;
     }
-
-    Serial.println("通讯地址: " + String(addr));
-    Serial.println("波特率: " + String(baud));
-    Serial.println("数据位: " + String(databits));
-    Serial.println("校验位: " + String(parity));
-    Serial.println("停止位: " + String(stopbits));
     //保存UART配置
     saveUartConfig(baud, databits, stopbits, parity, addr);
     // 发送配置报告
@@ -118,3 +156,89 @@ void handleRequestAddress_POST() {
     // 发送JSON的响应
     webServer.send(200, HTTP_TYPE_JSON, response);
 }
+
+//报警阀值
+void handleRequestAlarm_GET() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestAlarm_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+void handleRequestAlarm_GET_Handler(char *content, int size) {
+  
+}
+void handleRequestAlarm_POST() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestAlarm_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+
+// 无线设置
+void handleRequestWifi_GET() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestWifi_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+void handleRequestWifi_GET_Handler(char *content, int size) {
+  
+}
+void handleRequestWifi_POST() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestWifi_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+
+// 蓝牙设置
+void handleRequestBle_GET() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestBle_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+void handleRequestBle_GET_Handler(char *content, int size) {
+  
+}
+void handleRequestBle_POST() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestBle_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+
+// 网络设置
+void handleRequestNetwork_GET() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestNetwork_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+void handleRequestNetwork_GET_Handler(char *content, int size) {
+  
+}
+void handleRequestNetwork_POST() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestNetwork_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+
+// 服务设置
+void handleRequestService_GET() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestService_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+void handleRequestService_GET_Handler(char *content, int size) {
+  
+}
+void handleRequestService_POST() {
+    char response[HTTP_CONTENT_LENGTH];
+    handleRequestService_GET_Handler(response, sizeof(response));
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, response);
+}
+
