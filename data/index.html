@@ -128,11 +128,11 @@ if (targetContent) {
                 status: '设备状态',
                 ssid: '无线网络(SSID)',
                 rssi: '信号强度(RSSI)',
-                localIP: '本地IP地址',
-                gatewayIP: '网关地址',
-                subnetMask: '子网掩码',
+                local_ip: '本地IP地址',
+                gateway_ip: '网关地址',
+                subnet_mask: '子网掩码',
                 bssid: 'MAC地址',
-                dnsIP: 'DNS服务器'
+                dns_ip: 'DNS服务器'
             };
 
             // 4. 动态生成 HTML 列表
@@ -177,9 +177,9 @@ function loadAddressData() {
                     { key: 'addr', label: '设备地址', type: 'input', inputType: 'number', min: 1, max: 247 },
                     { key: 'baud', label: '波特率', type: 'select', options: [9600, 19200, 38400, 57600, 115200] },
                     // 修改点：将数据位改为下拉框，提供 5~8 的选项
-                    { key: 'databits', label: '数据位', type: 'select', options: [8, 9] }, 
+                    { key: 'dataBits', label: '数据位', type: 'select', options: [8, 9] }, 
                     { key: 'parity', label: '校验位', type: 'select', options: [{val: 0, text: '无 (None)'}, {val: 1, text: '奇校验 (Odd)'}, {val: 2, text: '偶校验 (Even)'}] },
-                    { key: 'stopbits', label: '停止位', type: 'select', options: [{val: 1, text: '1'}, {val: 2, text: '1.5'}, {val: 3, text: '2'}] }
+                    { key: 'stopBits', label: '停止位', type: 'select', options: [{val: 1, text: '1'}, {val: 2, text: '1.5'}, {val: 3, text: '2'}] }
                 ];
 
                 let html = '<form style="display: flex; flex-direction: column; gap: 15px;">';
@@ -230,15 +230,15 @@ function loadAddressData() {
     }
 }
 
-// 保存数据的函数
+// 保存地址设置的函数
 function saveAddressData() {
     // 1. 收集表单数据
     const formData = {
         addr: parseInt(document.getElementById('field_addr').value),
         baud: parseInt(document.getElementById('field_baud').value),
-        databits: parseInt(document.getElementById('field_databits').value),
+        dataBits: parseInt(document.getElementById('field_dataBits').value),
         parity: parseInt(document.getElementById('field_parity').value),
-        stopbits: parseInt(document.getElementById('field_stopbits').value)
+        stopBits: parseInt(document.getElementById('field_stopBits').value)
     };
     
     // 2. 将对象转换为表单字符串格式：key=value&key=value
@@ -250,24 +250,26 @@ function saveAddressData() {
     fetch('http://172.168.16.128/address', {
         method: 'POST',
         headers: {
-            // 核心修改：将 Content-Type 改为表单格式
             'Content-Type': 'application/x-www-form-urlencoded' 
         },
-        body: urlEncodedData // 提交表单格式的字符串
+        body: urlEncodedData 
     })
     .then(response => {
         if (!response.ok) {
             throw new Error('网络请求失败，状态码: ' + response.status);
         }
-        return response.json(); // 解析返回的 JSON 数据
+        return response.json(); 
     })
     .then(data => {
         console.log('服务器返回的数据:', data);
+        // 核心修改：判断 code 是否为 0
         if (data.code === 0) {
+            alert(data.msg || '✅ 设置保存成功！');
             loadAddressData();
-            alert('✅ 设置保存成功！');
         } else {
-            alert('❌ 保存失败，服务器返回错误。');
+            // 如果 code 不等于 0，弹窗提示返回的 msg 内容
+            // 使用 || '未知错误' 作为兜底，防止 msg 字段不存在时弹窗显示 undefined
+            alert('❌ ' + (data.msg || '未知错误'));
         }
     })
     .catch(error => {
@@ -275,6 +277,7 @@ function saveAddressData() {
         alert('❌ 提交失败，请检查网络连接或控制台日志。');
     });
 }
+
 function loadAlarmData() {
     // 加载报警阀值数据
 }
@@ -284,8 +287,126 @@ function loadWifiData() {
 function loadBleData() {
     // 加载蓝牙设置数据
 }
+// 加载网络设置
 function loadNetworkData() {
-    // 加载网络设置数据
+    const targetContent = document.querySelector(`.content > div[data="network"]`);
+    if (targetContent) {
+        fetch('http://172.168.16.128/network')
+            .then(response => {
+                if (!response.ok) throw new Error('网络请求失败');
+                return response.json();
+            })
+            .then(data => {
+                // 判断是否为动态IP：如果关键字段为空，则视为动态IP
+                const isDhcp = !data.local_ip && !data.subnet_mask && !data.gateway_ip && !data.dns_ip;
+
+                // 定义表单字段配置
+                const fields = [
+                    { key: 'local_ip', label: '本地IP' },
+                    { key: 'subnet_mask', label: '子网掩码' },
+                    { key: 'gateway_ip', label: '网关' },
+                    { key: 'dns_ip', label: 'DNS服务器' }
+                ];
+
+                let html = '<form style="display: flex; flex-direction: column; gap: 15px;">';
+                
+                // 1. 渲染 IP模式 单选框
+                html += `<div style="display: flex; align-items: center; justify-content: space-between;">`;
+                html += `<label style="width: 80px; color: #555;">IP模式：</label>`;
+                html += `<div style="flex: 1; display: flex; gap: 20px;">`;
+                html += `<label><input type="radio" name="ip_mode" value="dhcp" ${isDhcp ? 'checked' : ''} onchange="toggleNetworkInputs()"> 动态IP (DHCP)</label>`;
+                html += `<label><input type="radio" name="ip_mode" value="static" ${!isDhcp ? 'checked' : ''} onchange="toggleNetworkInputs()"> 静态IP</label>`;
+                html += `</div></div>`;
+
+                // 2. 渲染输入框
+                fields.forEach(field => {
+                    const value = data[field.key] || '';
+                    const fieldId = `field_${field.key}`;
+                    // 如果是动态IP，输入框设为禁用
+                    const disabled = isDhcp ? 'disabled' : '';
+                    
+                    html += `<div style="display: flex; align-items: center; justify-content: space-between;">`;
+                    html += `<label for="${fieldId}" style="width: 80px; color: #555;">${field.label}：</label>`;
+                    html += `<input type="text" id="${fieldId}" value="${value}" ${disabled} 
+                               style="flex: 1; padding: 6px; border: 1px solid #ccc; border-radius: 4px; background-color: ${isDhcp ? '#f5f5f5' : '#fff'};">`;
+                    html += `</div>`;
+                });
+
+                // 3. 保存按钮
+                html += `<div style="text-align: right; margin-top: 10px;">
+                            <button type="button" onclick="saveNetworkData()" 
+                                    style="padding: 8px 20px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                                保存设置
+                            </button>
+                         </div>`;
+                html += `</form>`;
+
+                targetContent.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('获取网络设置失败:', error);
+                targetContent.innerHTML = '<span style="color:red;">❌ 加载失败</span>';
+            });
+    }
+}
+
+// 切换输入框的禁用状态（供单选框 onchange 调用）
+function toggleNetworkInputs() {
+    const mode = document.querySelector('input[name="ip_mode"]:checked').value;
+    const inputs = document.querySelectorAll('#field_local_ip, #field_subnet_mask, #field_gateway_ip, #field_dns_ip');
+    
+    inputs.forEach(input => {
+        if (mode === 'dhcp') {
+            input.disabled = true;
+            input.style.backgroundColor = '#f5f5f5';
+        } else {
+            input.disabled = false;
+            input.style.backgroundColor = '#fff';
+        }
+    });
+}
+
+// 保存网络设置
+function saveNetworkData() {
+    const mode = document.querySelector('input[name="ip_mode"]:checked').value;
+    
+    // 收集数据
+    const formData = {
+        // 如果是动态IP，提交空字符串；如果是静态IP，获取输入框的值
+        local_ip: mode === 'dhcp' ? '' : document.getElementById('field_local_ip').value,
+        subnet_mask: mode === 'dhcp' ? '' : document.getElementById('field_subnet_mask').value,
+        gateway_ip: mode === 'dhcp' ? '' : document.getElementById('field_gateway_ip').value,
+        dns_ip: mode === 'dhcp' ? '' : document.getElementById('field_dns_ip').value
+    };
+
+    // 转换为表单格式
+    const urlEncodedData = Object.keys(formData)
+        .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(formData[key]))
+        .join('&');
+
+    fetch('http://172.168.16.128/network', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: urlEncodedData
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('网络请求失败');
+        return response.json();
+    })
+    .then(data => {
+        if (data.code === 0) {
+            alert(data.msg || '✅ 网络设置保存成功！');
+            loadNetworkData(); // 刷新界面
+        } else {
+            alert('❌ ' + (data.msg || '未知错误'));
+        }
+    })
+    .catch(error => {
+        console.error('提交数据时出错:', error);
+        alert('❌ 提交失败，请检查网络连接。');
+    });
 }
 function loadServiceData() {
     // 加载服务设置数据

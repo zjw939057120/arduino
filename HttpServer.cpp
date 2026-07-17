@@ -81,7 +81,7 @@ void handleRequestHome_GET() {
 void handleRequestHome_GET_Handler(char *content, int size) {
   // wifi状态
   uint8_t cwState = getATCWState();
-  snprintf(content, size, "{\"code\":0,\"status\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"localIP\":\"%s\",\"gatewayIP\":\"%s\",\"subnetMask\":\"%s\",\"bssid\":\"%s\",\"dnsIP\":\"%s\"}",
+  snprintf(content, size, "{\"code\":0,\"status\":%d,\"ssid\":\"%s\",\"rssi\":%d,\"local_ip\":\"%s\",\"gateway_ip\":\"%s\",\"subnet_mask\":\"%s\",\"bssid\":\"%s\",\"dns_ip\":\"%s\"}",
            cwState,
            WiFi.SSID().c_str(),
            WiFi.RSSI(),
@@ -105,56 +105,53 @@ void handleRequestAddress_GET_Handler(char *content, int size) {
   // 加载UART配置
     int addr = 0;
     int baud = 0;
-    int databits = 0;
+    int dataBits = 0;
     int parity = 0;
-    int stopbits = 0;
-    loadUartConfig(&baud, &databits, &stopbits, &parity, &addr);
+    int stopBits = 0;
+    loadUartConfig(&baud, &dataBits, &stopBits, &parity, &addr);
 
     // 构建JSON响应
-    snprintf(content, size, "{\"code\":0,\"addr\":%d,\"baud\":%d,\"databits\":%d,\"parity\":%d,\"stopbits\":%d}", addr, baud, databits, parity, stopbits);
+    snprintf(content, size, "{\"code\":0,\"addr\":%d,\"baud\":%d,\"dataBits\":%d,\"parity\":%d,\"stopBits\":%d}", addr, baud, dataBits, parity, stopBits);
 }
 void handleRequestAddress_POST() {
     // 提取各个表单字段的值
     int addr = webServer.arg("addr").toInt();
     int baud = webServer.arg("baud").toInt();
-    int databits = webServer.arg("databits").toInt();
+    int dataBits = webServer.arg("dataBits").toInt();
     int parity = webServer.arg("parity").toInt();
-    int stopbits = webServer.arg("stopbits").toInt();
+    int stopBits = webServer.arg("stopBits").toInt();
 
     if (addr < 0 || addr > 255) {
       // 通讯地址范围0-255
-      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Address\"}"));
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"通讯地址错误\"}"));
       return;
     } else if (baud < 0 || baud > 115200) {
       // 波特率范围80-5000000
       // 5000000=5Mbps
-      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Baud Rate\"}"));
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"波特率错误\"}"));
       return;
-    } else if (databits < 5 || databits > 9) {
+    } else if (dataBits < 5 || dataBits > 9) {
       // 数据位范围5-9
       // 5bit,6bit,7bit,8bit,9bit
-      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Dataatabits\"}"));
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"数据位错误\"}"));
       return;
-    } else if (parity < 0 || parity > 1) {
-      // 校验位范围0-1
+    } else if (parity < 0 || parity > 2) {
+      // 校验位范围0-2
       // 0=None,1=Odd,2=Even
-      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Parity\"}"));
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"校验位错误\"}"));
       return;
-    } else if (stopbits < 0 || stopbits > 3) {
+    } else if (stopBits < 0 || stopBits > 3) {
       // 停止位范围0-3
       // 1=1bit,2=1.5bit,3=2bit
-      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"Invalid Stopbits\"}"));
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"停止位错误\"}"));
       return;
     }
-    //保存UART配置
-    saveUartConfig(baud, databits, stopbits, parity, addr);
-    // 发送配置报告
-    sendUartConfigReport(baud, databits, stopbits, parity, addr);
-    // 构建JSON响应
-    char response[HTTP_CONTENT_LENGTH];
-    snprintf(response, sizeof(response), "{\"code\":0,\"addr\":%d,\"baud\":%d,\"databits\":%d,\"parity\":%d,\"stopbits\":%d}", addr, baud, databits, parity, stopbits);
+    // 保存UART配置
+    doSaveUartConfig(baud, dataBits, stopBits, parity, addr);
+    
     // 发送JSON的响应
-    webServer.send(200, HTTP_TYPE_JSON, response);
+    webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":0,\"msg\":\"配置成功\"}"));
+    return;
 }
 
 //报警阀值
@@ -210,19 +207,39 @@ void handleRequestBle_POST() {
 
 // 网络设置
 void handleRequestNetwork_GET() {
-    char response[HTTP_CONTENT_LENGTH];
-    handleRequestNetwork_GET_Handler(response, sizeof(response));
-    // 发送JSON的响应
-    webServer.send(200, HTTP_TYPE_JSON, response);
+  char response[HTTP_CONTENT_LENGTH];
+  handleRequestNetwork_GET_Handler(response, sizeof(response));
+  // 发送JSON的响应
+  webServer.send(200, HTTP_TYPE_JSON, response);
 }
 void handleRequestNetwork_GET_Handler(char *content, int size) {
-  
+  loadDeviceConfig();
+  snprintf(content, size, "{\"code\":0,\"local_ip\":\"%s\",\"subnet_mask\":\"%s\",\"gateway_ip\":\"%s\",\"dns_ip\":\"%s\"}", deviceConfig.local_ip, deviceConfig.subnet_mask, deviceConfig.gateway_ip, deviceConfig.dns_ip);
 }
 void handleRequestNetwork_POST() {
-    char response[HTTP_CONTENT_LENGTH];
-    handleRequestNetwork_GET_Handler(response, sizeof(response));
-    // 发送JSON的响应
-    webServer.send(200, HTTP_TYPE_JSON, response);
+  // 提取各个表单字段的值
+  String local_ip = webServer.arg("local_ip");
+  String subnet_mask = webServer.arg("subnet_mask");
+  String gateway_ip = webServer.arg("gateway_ip");
+  String dns_ip = webServer.arg("dns_ip");
+
+  char response[HTTP_CONTENT_LENGTH];
+  if (local_ip.isEmpty() && subnet_mask.isEmpty() && gateway_ip.isEmpty() && dns_ip.isEmpty()) {
+    //静态IP配置
+    snprintf(response, sizeof(response), "{\"code\":0,\"msg\":\"静态IP配置成功\"}");
+  }else if (!local_ip.isEmpty() && !subnet_mask.isEmpty() && !gateway_ip.isEmpty() && !dns_ip.isEmpty()) {
+    // 动态IP配置
+    snprintf(response, sizeof(response), "{\"code\":0,\"msg\":\"配置成功\"}");
+  }else {
+    snprintf(response, sizeof(response), "{\"code\":1,\"msg\":\"缺少必填项\"}");
+    return;
+  }
+
+  // 保存设备配置
+  doSaveDeviceConfig(local_ip.c_str(), gateway_ip.c_str(), subnet_mask.c_str(), dns_ip.c_str());
+
+  // 发送JSON的响应
+  webServer.send(200, HTTP_TYPE_JSON, response);
 }
 
 // 服务设置

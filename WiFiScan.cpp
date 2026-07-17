@@ -640,6 +640,13 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   ATCWState();// 获取当前 Wi-Fi 状态
 }
 
+void doSaveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
+  // 保存UART配置
+  saveUartConfig(baud, dataBits, stopBits, parity, addr);
+  // 发送配置报告
+  sendUartConfigReport(baud, dataBits, stopBits, parity, addr);
+}
+
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
   preferences.begin(NVS_UART_NAMESPACE, false);
   if (preferences.getInt("baud", 9600) != baud) {
@@ -787,7 +794,20 @@ bool parseDeviceConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char*
   return true;
 }
 
-void saveDeviceConfig(char* local_ip, char* gateway_ip, char* subnet_mask, char* dns_ip){
+void doSaveDeviceConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip) {
+  saveDeviceConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
+  sendDeviceConfigReport(local_ip, gateway_ip, subnet_mask, dns_ip);
+
+  WiFi.disconnect();
+  // 设置设备信息
+  configStation();
+  // 连接WiFi
+  wifiConnect();
+  // 重置WiFi检查次数
+  deviceStatus.wifi_check_count = 0;
+}
+
+void saveDeviceConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip){
   preferences.begin(NVS_DEVICE_NAMESPACE, false);
   if (!preferences.getString("local_ip", "").equals(local_ip))
     deviceConfig.local_ip, preferences.putString("local_ip", local_ip);
@@ -808,7 +828,7 @@ void saveDeviceConfig(char* local_ip, char* gateway_ip, char* subnet_mask, char*
   strcpy(deviceConfig.dns_ip, dns_ip);
 }
 
-void sendDeviceConfigReport(char* local_ip, char* gateway_ip, char* subnet_mask, char* dns_ip){
+void sendDeviceConfigReport(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip){
   MySerial.printf("+DEVICE_DEF:\"%s\",\"%s\",\"%s\",\"%s\"\r\n", local_ip, gateway_ip, subnet_mask, dns_ip);
 }
 
@@ -1033,16 +1053,7 @@ void processCommand(char* cmd) {
     char subnet_mask[16];
     char dns_ip[16];
     if (parseDeviceConfigCommand(cmd, local_ip, gateway_ip, subnet_mask, dns_ip)) {
-      saveDeviceConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
-      sendDeviceConfigReport(local_ip, gateway_ip, subnet_mask, dns_ip);
-
-      WiFi.disconnect();
-      // 设置设备信息
-      configStation();
-      // 连接WiFi
-      wifiConnect();
-      // 重置WiFi检查次数
-      deviceStatus.wifi_check_count = 0;
+      doSaveDeviceConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
     } else {
       // 设备配置错误
       MySerial.println(F("ERROR"));
@@ -1208,7 +1219,7 @@ void NetworkTask(void* pvParameters) {
 // 其他任务函数，用于处理其他任务，如关闭AP模式
 void MiscTask(void* pvParameters) {
   while (true) {
-    delay(3 * 60 * 1000);// 每3分钟处理一次其他任务
+    delay(10 * 60 * 1000);// 每10分钟处理一次其他任务
     // 关闭AP模式
     WiFi.AP.end();
     // 删除HTTP任务
@@ -1418,7 +1429,7 @@ void setupEntry() {
     // 网络任务
     xTaskCreate(NetworkTask, "Network", 4096, NULL, 1, &taskHandles.networkTaskHandle);
     // 其他任务
-    xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
+    // xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
   }
 }
 
