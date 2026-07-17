@@ -892,6 +892,7 @@ void restore() {
 }
 
 void ScanWiFi() {
+  deviceStatus.wifi_scaning = true;
   int n = WiFi.scanNetworks();
   if (n == 0) {
     MySerial.println("OK");
@@ -922,6 +923,56 @@ void ScanWiFi() {
     MySerial.println("OK");
   }
   WiFi.scanDelete();
+  deviceStatus.wifi_scaning = false;
+}
+
+void ScanWiFiHandler(char* content, int size) {
+  deviceStatus.wifi_scaning = true;
+  
+  // 使用单字符键名：e=ecn, s=ssid, r=rssi, m=mac, c=ch
+  int offset = snprintf(content, size, "{\"code\":0,\"msg\":\"OK\",\"data\":[");
+  
+  int n = WiFi.scanNetworks();
+  uint8_t sum = 0;
+  
+  if (n > 0) {
+    for (int i = 0; i < n; ++i) {
+      // 过滤非ASCII字符
+      if (containsNonASCII(WiFi.SSID(i).c_str())) {
+        continue;
+      }
+      // 最多扫描12个网络
+      if (sum >= 12) {
+        break; 
+      }
+      
+      char macStr[18];
+      formatMacAddress(WiFi.BSSID(i), macStr);
+      int ecn = getEcnValue(WiFi.encryptionType(i));
+      
+      // 如果不是第一个元素，先追加逗号
+      if (sum > 0) {
+        offset += snprintf(content + offset, size - offset, ",");
+      }
+      
+      // 拼接单个网络对象的 JSON（使用单字符键名）
+      offset += snprintf(content + offset, size - offset, 
+                         "{\"e\":%d,\"s\":\"%s\",\"r\":%d,\"m\":\"%s\",\"c\":%d}", 
+                         ecn, 
+                         WiFi.SSID(i).c_str(), 
+                         WiFi.RSSI(i), 
+                         macStr, 
+                         WiFi.channel(i));
+      
+      sum++;
+    }
+  }
+  
+  // 闭合 data 数组和 JSON 对象
+  snprintf(content + offset, size - offset, "]}");
+  
+  WiFi.scanDelete();
+  deviceStatus.wifi_scaning = false;
 }
 
 void DoBLEScan(int duration) {
@@ -937,7 +988,7 @@ void DoBLEScan(int duration) {
   deviceStatus.ble_scaning = false;
 }
 
-void DoWiFiConnect(char* ssid, char* pwd) {
+void DoWiFiConnect(const char* ssid, const char* pwd) {
   if (strlen(ssid) == 0) {
     MySerial.println("ERROR");
     return;
@@ -973,10 +1024,8 @@ void processCommand(char* cmd) {
     delay(1000);
     ESP.restart();
   } else if (strcmp(cmd, AT_CMD_CWLWAP) == 0) {
-    deviceStatus.wifi_scaning = true;
     // 获取WiFi列表
     ScanWiFi();
-    deviceStatus.wifi_scaning = false;
   } else if (strncmp(cmd, AT_CMD_CWJAP, strlen(AT_CMD_CWJAP)) == 0) {
     //连接WiFi
     char ssid[33];
@@ -1419,7 +1468,7 @@ void setupEntry() {
     // Modbus任务
     xTaskCreate(ModbusServerTask, "ModbusServer", 4096, NULL, 1, &taskHandles.modbusTaskHandle);
     // HTTP任务
-    xTaskCreate(HttpServerTask, "HttpServer", 4096, NULL, 1, &taskHandles.httpServerTaskHandle);
+    xTaskCreate(HttpServerTask, "HttpServer", 8192, NULL, 1, &taskHandles.httpServerTaskHandle);
     // MQTT任务
     if(loadMQTTConfig(mqttConfig.ip, &mqttConfig.port, mqttConfig.username, mqttConfig.password)) {
       xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, &taskHandles.mqttTaskHandle);
@@ -1427,9 +1476,9 @@ void setupEntry() {
     // 命令任务
     xTaskCreate(CommandTask, "Command", 4096, NULL, 1, &taskHandles.commandTaskHandle);
     // 网络任务
-    xTaskCreate(NetworkTask, "Network", 4096, NULL, 1, &taskHandles.networkTaskHandle);
+    xTaskCreate(NetworkTask, "Network", 2048, NULL, 1, &taskHandles.networkTaskHandle);
     // 其他任务
-    // xTaskCreate(MiscTask, "Misc", 4096, NULL, 1, &taskHandles.miscTaskHandle);
+    xTaskCreate(MiscTask, "Misc", 2048, NULL, 1, &taskHandles.miscTaskHandle);
   }
 }
 

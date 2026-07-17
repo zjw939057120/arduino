@@ -11,6 +11,7 @@
 #define HTTP_TYPE_JSON "application/json;charset=utf-8"
 #define HTTP_TYPE_HTML "text/html;charset=utf-8"
 #define HTTP_CONTENT_LENGTH 256
+#define HTTP_CONTENT_LENGTH_WIFI 256 * 6
 
 extern WebServer webServer;
 

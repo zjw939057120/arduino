@@ -173,17 +173,40 @@ void handleRequestAlarm_POST() {
 
 // 无线设置
 void handleRequestWifi_GET() {
-    char response[HTTP_CONTENT_LENGTH];
+    char response[HTTP_CONTENT_LENGTH_WIFI];
     handleRequestWifi_GET_Handler(response, sizeof(response));
     // 发送JSON的响应
     webServer.send(200, HTTP_TYPE_JSON, response);
 }
 void handleRequestWifi_GET_Handler(char *content, int size) {
-  
+    ScanWiFiHandler(content, size);
 }
 void handleRequestWifi_POST() {
     char response[HTTP_CONTENT_LENGTH];
-    handleRequestWifi_GET_Handler(response, sizeof(response));
+    String ssid = webServer.arg("ssid");
+    String pwd = webServer.arg("pwd");
+    if (ssid.isEmpty()) {
+      webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"ssid为空\"}"));
+      return;
+    }
+    DoWiFiConnect(ssid.c_str(), pwd.c_str());
+
+    snprintf(response, sizeof(response), "{\"code\":0,\"msg\":\"连接成功\"}");
+
+    uint8_t count = 0;
+    while (WiFi.status() != WL_CONNECTED && count < 3) {
+      delay(5000);
+      // 等待连接成功
+      if (WiFi.status() != WL_CONNECTED) {
+        snprintf(response, sizeof(response), "{\"code\":1,\"msg\":\"连接超时\"}");
+      } else {
+        // 连接成功
+        webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":0,\"msg\":\"连接成功\"}"));
+        return;
+      }
+      count++;
+    }
+
     // 发送JSON的响应
     webServer.send(200, HTTP_TYPE_JSON, response);
 }
@@ -225,13 +248,14 @@ void handleRequestNetwork_POST() {
 
   char response[HTTP_CONTENT_LENGTH];
   if (local_ip.isEmpty() && subnet_mask.isEmpty() && gateway_ip.isEmpty() && dns_ip.isEmpty()) {
-    //静态IP配置
-    snprintf(response, sizeof(response), "{\"code\":0,\"msg\":\"静态IP配置成功\"}");
-  }else if (!local_ip.isEmpty() && !subnet_mask.isEmpty() && !gateway_ip.isEmpty() && !dns_ip.isEmpty()) {
     // 动态IP配置
-    snprintf(response, sizeof(response), "{\"code\":0,\"msg\":\"配置成功\"}");
+    snprintf(response, sizeof(response), "{\"code\":0,\"msg\":\"动态IP配置成功\"}");
+  }else if (!local_ip.isEmpty() && !subnet_mask.isEmpty() && !gateway_ip.isEmpty() && !dns_ip.isEmpty()) {
+    // 静态IP配置
+    snprintf(response, sizeof(response), "{\"code\":0,\"msg\":\"静态IP配置成功\"}");
   }else {
-    snprintf(response, sizeof(response), "{\"code\":1,\"msg\":\"缺少必填项\"}");
+    // 发送JSON的响应
+    webServer.send(200, HTTP_TYPE_JSON, F("{\"code\":1,\"msg\":\"缺少必填项\"}"));
     return;
   }
 

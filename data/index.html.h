@@ -286,8 +286,112 @@ function saveAddressData() {
 function loadAlarmData() {
     // 加载报警阀值数据
 }
+// 加载Wi-Fi列表
 function loadWifiData() {
-    // 加载无线设置数据
+    const targetContent = document.querySelector(`.content > div[data="wifi"]`);
+    if (targetContent) {
+        targetContent.innerHTML = '正在扫描Wi-Fi...';
+
+        fetch('/wifi')
+            .then(response => {
+                if (!response.ok) throw new Error('网络请求失败');
+                return response.json();
+            })
+            .then(json => {
+                if (json.code !== 0) {
+                    targetContent.innerHTML = `<span style="color:red;">❌ 加载失败: ${json.msg}</span>`;
+                    return;
+                }
+
+                const wifiList = json.data;
+                if (!wifiList || wifiList.length === 0) {
+                    targetContent.innerHTML = '<p>未发现任何Wi-Fi信号。</p>';
+                    return;
+                }
+
+                let html = '<ul style="list-style: none; padding: 0; margin: 0;">';
+                
+                wifiList.forEach(wifi => {
+                    // 将信号强度(r)转换为格数显示，例如 -47dBm 显示为 5格
+                    const signalBars = getSignalBars(wifi.r);
+                    // 对SSID进行HTML转义，防止XSS攻击
+                    const safeSsid = wifi.s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+                    html += `<li style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid #eee;">`;
+                    html += `<div style="flex: 1;">`;
+                    html += `<div style="font-weight: bold; color: #333;">${safeSsid}</div>`;
+                    html += `<div style="font-size: 0.8em; color: #888;">信号: ${signalBars} (${wifi.r}dBm) | 信道: ${wifi.c}</div>`;
+                    html += `</div>`;
+                    // 将SSID和加密方式(e)作为参数传递给连接函数
+                    html += `<button onclick="connectToWifi('${encodeURIComponent(wifi.s)}', ${wifi.e})" style="padding: 6px 12px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer;">连接</button>`;
+                    html += `</li>`;
+                });
+
+                html += '</ul>';
+                targetContent.innerHTML = html;
+            })
+            .catch(error => {
+                console.error('获取Wi-Fi列表失败:', error);
+                targetContent.innerHTML = '<span style="color:red;">❌ 加载失败，请检查网络</span>';
+            });
+    }
+}
+
+// 将信号强度转换为格数
+function getSignalBars(rssi) {
+    if (rssi >= -50) return '📶📶📶📶📶';
+    if (rssi >= -60) return '📶📶📶📶';
+    if (rssi >= -70) return '📶📶📶';
+    if (rssi >= -80) return '📶📶';
+    return '📶';
+}
+
+// 处理连接Wi-Fi的逻辑
+function connectToWifi(encodedSsid, encryption) {
+    const ssid = decodeURIComponent(encodedSsid);
+    
+    // 如果是开放网络（无加密），可以直接尝试连接，这里简化为直接提交空密码
+    let password = '';
+    if (encryption !== 0) {
+        password = prompt(`请输入Wi-Fi "${ssid}" 的密码：`);
+        // 用户点击取消时，password 为 null
+        if (password === null) return;
+    }
+
+    // 准备提交的数据
+    const formData = {
+        ssid: ssid,      // Wi-Fi 名称
+        pwd: password   // Wi-Fi 密码
+    };
+
+    // 转换为表单格式
+    const urlEncodedData = Object.keys(formData)
+        .map(key => encodeURIComponent(key) + '=' + encodeURIComponent(formData[key]))
+        .join('&');
+
+    // 发送POST请求
+    fetch('/wifi', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: urlEncodedData
+    })
+    .then(response => {
+        if (!response.ok) throw new Error('网络请求失败');
+        return response.json();
+    })
+    .then(data => {
+        if (data.code === 0) {
+            alert(data.msg || '✅ 连接请求已发送');
+        } else {
+            alert('❌' + (data.msg || '未知错误'));
+        }
+    })
+    .catch(error => {
+        console.error('连接Wi-Fi时出错:', error);
+        alert('❌ 提交失败，请检查网络连接。');
+    });
 }
 function loadBleData() {
     // 加载蓝牙设置数据
