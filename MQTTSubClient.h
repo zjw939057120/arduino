@@ -12,6 +12,7 @@ typedef struct {
     char username[16];
     char password[16];
     char clientId[32];
+    char topic[32];
 } MQTTConfig;
 
 extern MQTTConfig mqttConfig;
@@ -25,10 +26,4 @@ void MQTTSubClientHandler();
 // 重新连接MQTT服务器
 void MQTTSubClientReConnect();
 
-// MQTT服务器配置
-// #define MQTT_SERVER_IP "8.135.10.183"
-// #define MQTT_SERVER_PORT 23287
-// #define MQTT_SERVER_USER "username"
-// #define MQTT_SERVER_PASSWORD "password"
-#define MQTT_SERVER_TOPIC_SENSOR "sensor"
 #endif // MQTT_SUB_CLIENT_H

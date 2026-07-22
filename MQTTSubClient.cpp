@@ -23,7 +23,7 @@ void MQTTSubClientConnect() {
   Serial.println(F("mqtt connected"));
 
   // 订阅主题
-  mqttClient.subscribe(MQTT_SERVER_TOPIC_SENSOR);
+  mqttClient.subscribe(mqttConfig.topic);
 }
 
 void messageReceived(String &topic, String &payload) {
@@ -39,6 +39,7 @@ void messageReceived(String &topic, String &payload) {
 void MQTTSubClientStart() {
   // 配置MQTT客户端参数
   strcpy(mqttConfig.clientId, deviceConfig.ap_ssid);
+  strcpy(mqttConfig.topic, deviceConfig.ap_ssid);
   delay(5000);// 等待5秒，确保WiFi连接稳定
   // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported
   // by Arduino. You need to set the IP address directly.
@@ -55,14 +56,14 @@ void MQTTSubClientHandler() {
   }
 
   auto now = millis();
-  if (now - lastSensorMillis > 5000) {
-    // 每5秒发布一次传感器数据
+  if (now - lastSensorMillis > 10000) {
+    // 每10秒发布一次传感器数据
     lastSensorMillis = now;
     sprintf(payload_buffer, "[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]",
             sensorData.CO2, sensorData.CH2O, sensorData.TVOC, sensorData.PM25, sensorData.PM100, sensorData.TEMP, sensorData.RH, sensorData.PM10, sensorData.TYPE,
             bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum,
             bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum);
-    mqttClient.publish(MQTT_SERVER_TOPIC_SENSOR, payload_buffer, strlen(payload_buffer));
+    mqttClient.publish(mqttConfig.topic, payload_buffer, strlen(payload_buffer));
   }
 
 }
