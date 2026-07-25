@@ -40,10 +40,19 @@ typedef struct {
   uint8_t wifi_check_count; // WiFi检查次数，用于判断是否需要重新连接WiFi
 } DeviceStatus;// 设备状态结构体，用于存储设备的BLE扫描状态、WiFi扫描状态和WiFi检查次数
 
+typedef struct {
+  int baud;//波特率
+  int dataBits;//数据位
+  int stopBits;//停止位
+  int parity;//校验位
+  int addr;//地址位
+} UartConfig;// 串口配置结构体，用于存储串口的波特率、数据位、停止位、校验位和地址位
+
 extern TaskHandles taskHandles;
 extern WiFiConfig wifiConfig;
 extern DeviceConfig deviceConfig;
 extern DeviceStatus deviceStatus;
+extern UartConfig uartConfig;
 
 void setupEntry();
 void loopEntry();
@@ -73,7 +82,8 @@ void loadDeviceConfig();
 void configStation();
 void wifiConnect();
 void restore();
-void ScanWiFi();
+void sendCWJAPReport();
+void SendScanWiFiReport();
 void ScanWiFiHandler(char* content, int size);
 void DoBLEScan(int duration);
 void DoWiFiConnect(const char* ssid, const char* pwd);
@@ -91,9 +101,9 @@ bool parseBleListCommand(char* cmd, int* count);
 void saveBleListConfig();
 void sendBleListReport(int count);
 uint8_t getATCWState();
-void ATCWState();
+void sendCWStateReport();
 int findBleDevice(const char* addr);
-int sendBleSensorData();
+int sendBleSensorReport();
 bool containsNonASCII(const char* ssid);
 void getMacAddress(char *macStr);
 void getHostname(char *hostnameStr);

@@ -33,24 +33,34 @@
 #define AT_CMD_AT "AT"
 // 重启指令
 #define AT_CMD_RESTART "AT+RST"
-// 获取WiFi状态指令
+// 列出当前可用的AP
 #define AT_CMD_CWLWAP "AT+CWLAP"
 // 连接WiFi指令
 #define AT_CMD_CWJAP "AT+CWJAP="
+// 获取连接WiFi信息指令
+#define AT_CMD_CWJAP_GET "AT+CWJAP?"
 // BLE扫描指令
 #define AT_CMD_BLE_SCAN "AT+BLESCAN="
-// 获取BLE列表指令
+// 设置BLE列表指令
 #define AT_CMD_BLE_LST "AT+BLE_LST="
-// UART定义指令
+// 获取BLE列表指令
+#define AT_CMD_BLE_LST_GET "AT+BLE_LST?"
+// 设置UART定义指令
 #define AT_CMD_UART_DEF "AT+UART_DEF="
+// 获取UART定义指令
+#define AT_CMD_UART_DEF_GET "AT+UART_DEF?"
 // 获取WiFi状态指令
-#define AT_CMD_CWSTATE "AT+CWSTATE?"
-// 传感器数据指令
+#define AT_CMD_CWSTATE_GET "AT+CWSTATE?"
+// 设置传感器数据指令
 #define AT_CMD_SENSOR "AT+SENSOR="
-//MQTT配置指令
+// 设置MQTT配置指令
 #define AT_CMD_MQTT_DEF "AT+MQTT_DEF="
-// 设备配置指令
+// 获取MQTT配置指令
+#define AT_CMD_MQTT_DEF_GET "AT+MQTT_DEF?"
+// 设置设备配置指令
 #define AT_CMD_DEVICE_DEF "AT+DEVICE_DEF="
+// 获取设备配置指令
+#define AT_CMD_DEVICE_DEF_GET "AT+DEVICE_DEF?"
 
 // 任务句柄
 TaskHandles taskHandles = {NULL,NULL, NULL,NULL, NULL, NULL};
@@ -60,6 +70,8 @@ WiFiConfig wifiConfig;
 DeviceConfig deviceConfig;
 // 设备状态
 DeviceStatus deviceStatus = {false, false, 0};
+// 串口配置
+UartConfig uartConfig = {9600, 8, 1, 0, 1};
 // 串口
 HardwareSerial MySerial(1);
 
@@ -590,7 +602,6 @@ void sendBleListReport(int count) {
     }
   }
   MySerial.println();
-  sendBleSensorData();
 }
 
 void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
@@ -637,7 +648,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       break;
     }
 
-  ATCWState();// 获取当前 Wi-Fi 状态
+  sendCWStateReport();// 获取当前 Wi-Fi 状态
 }
 
 void doSaveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) {
@@ -891,7 +902,11 @@ void restore() {
   ESP.restart();
 }
 
-void ScanWiFi() {
+void sendCWJAPReport() {
+  MySerial.printf("+CWJAP:\"%s\",\"%s\"\r\n", wifiConfig.ssid, wifiConfig.pwd);
+}
+
+void SendScanWiFiReport() {
   deviceStatus.wifi_scaning = true;
   int n = WiFi.scanNetworks();
   if (n == 0) {
@@ -1025,7 +1040,7 @@ void processCommand(char* cmd) {
     ESP.restart();
   } else if (strcmp(cmd, AT_CMD_CWLWAP) == 0) {
     // 获取WiFi列表
-    ScanWiFi();
+    SendScanWiFiReport();
   } else if (strncmp(cmd, AT_CMD_CWJAP, strlen(AT_CMD_CWJAP)) == 0) {
     //连接WiFi
     char ssid[33];
@@ -1037,6 +1052,9 @@ void processCommand(char* cmd) {
       // 连接WiFi错误
       MySerial.println(F("ERROR"));
     }
+  } else if (strcmp(cmd, AT_CMD_CWJAP_GET) == 0) {
+    // 获取连接WiFi信息
+    sendCWJAPReport();
   } else if (strncmp(cmd, AT_CMD_BLE_SCAN, strlen(AT_CMD_BLE_SCAN)) == 0) {
     //扫描BLE
     int mode = 0;
@@ -1059,6 +1077,9 @@ void processCommand(char* cmd) {
       // BLE列表错误
       MySerial.println(F("ERROR"));
     }
+  } else if (strcmp(cmd, AT_CMD_BLE_LST_GET) == 0) {
+    // 获取BLE列表
+    sendBleListReport(bleCount);
   } else if (strncmp(cmd, AT_CMD_UART_DEF, strlen(AT_CMD_UART_DEF)) == 0) {
     //设置串口参数
     int baud = 0;
@@ -1069,14 +1090,22 @@ void processCommand(char* cmd) {
 
     if (parseUartConfigCommand(cmd, &baud, &dataBits, &stopBits, &parity, &addr)) {
       saveUartConfig(baud, dataBits, stopBits, parity, addr);
-      sendUartConfigReport(baud, dataBits, stopBits, parity, addr);
+      uartConfig.baud = baud;
+      uartConfig.dataBits = dataBits;
+      uartConfig.stopBits = stopBits;
+      uartConfig.parity = parity;
+      uartConfig.addr = addr;
+      sendUartConfigReport(uartConfig.baud, uartConfig.dataBits, uartConfig.stopBits, uartConfig.parity, uartConfig.addr);
     } else {
       // 串口配置错误
       MySerial.println(F("ERROR"));
     }
-  } else if (strcmp(cmd, AT_CMD_CWSTATE) == 0) {
+  } else if (strcmp(cmd, AT_CMD_UART_DEF_GET) == 0) {
+    // 获取串口参数
+    sendUartConfigReport(uartConfig.baud, uartConfig.dataBits, uartConfig.stopBits, uartConfig.parity, uartConfig.addr);
+  } else if (strcmp(cmd, AT_CMD_CWSTATE_GET) == 0) {
     // 获取WiFi状态
-    ATCWState();
+    sendCWStateReport();
   } else if (strncmp(cmd, AT_CMD_SENSOR, strlen(AT_CMD_SENSOR)) == 0) {
     // 传感器数据
     parseSensorCommand(cmd, &sensorData);
@@ -1095,6 +1124,9 @@ void processCommand(char* cmd) {
       // MQTT配置错误
       MySerial.println(F("ERROR"));
     }
+  } else if (strcmp(cmd, AT_CMD_MQTT_DEF_GET) == 0) {
+    // 获取MQTT参数
+    sendMQTTConfigReport(mqttConfig.ip, mqttConfig.port, mqttConfig.username, mqttConfig.password);
   } else if (strncmp(cmd, AT_CMD_DEVICE_DEF, strlen(AT_CMD_DEVICE_DEF)) == 0) {
     // 设备配置
     char local_ip[16];
@@ -1108,6 +1140,9 @@ void processCommand(char* cmd) {
       MySerial.println(F("ERROR"));
     }
 
+   } else if (strcmp(cmd, AT_CMD_DEVICE_DEF_GET) == 0) {
+    // 获取设备参数
+    sendDeviceConfigReport(deviceConfig.local_ip, deviceConfig.gateway_ip, deviceConfig.subnet_mask, deviceConfig.dns_ip);
    } else {  
     // 无效指令
     Serial.print(F("ERROR:"));
@@ -1206,7 +1241,7 @@ void BLESensorTask(void* pvParameters) {
     pBLEScan->setAdvertisedDeviceCallbacks(&bleSensorCallback);
     pBLEScan->start(5, false); // 开始扫描5秒
     // 等待扫描完成
-    sendBleSensorData();
+    sendBleSensorReport();
   }
 }
 
@@ -1321,7 +1356,7 @@ uint8_t getATCWState() {
     return 4; 
 }
 
-void ATCWState() {
+void sendCWStateReport() {
   // wifi状态
   uint8_t cwState = getATCWState();
   MySerial.printf("+CWSTATE:%d,\"%s\",%d,\"%s\",\"%s\",\"%s\",\"%s\",\"%s\"\r\n",
@@ -1346,7 +1381,7 @@ int findBleDevice(const char* addr) {
   return -1; // 未找到匹配的设备，返回-1
 }
 
-int sendBleSensorData() {
+int sendBleSensorReport() {
   MySerial.flush();
   // 初始化未检测到的传感器数据为0
   for (int i = bleCount; i < MAX_BLE_ADDRESSES; i++) {
@@ -1413,13 +1448,18 @@ void setupEntry() {
   // 加载WiFi配置
   loadWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
   // 加载UART配置
-  int uartBaud = 9600;
-  int uartDataBits = 8;
-  int uartStopBits = 1;
-  int uartParity = 0;
-  int uartAddr = 0;
-  if (loadUartConfig(&uartBaud, &uartDataBits, &uartStopBits, &uartParity, &uartAddr)) {
-    sendUartConfigReport(uartBaud, uartDataBits, uartStopBits, uartParity, uartAddr);
+  int baud = 0;
+  int dataBits = 0;
+  int stopBits = 0;
+  int parity = 0;
+  int addr = 0;
+  if (loadUartConfig(&baud, &dataBits, &stopBits, &parity, &addr)) {
+    uartConfig.baud = baud;
+    uartConfig.dataBits = dataBits;
+    uartConfig.stopBits = stopBits;
+    uartConfig.parity = parity;
+    uartConfig.addr = addr;
+    sendUartConfigReport(uartConfig.baud, uartConfig.dataBits, uartConfig.stopBits, uartConfig.parity, uartConfig.addr);
   }
   // 加载BLE列表配置
   if (loadBleListConfig()) {
