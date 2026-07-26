@@ -1306,8 +1306,15 @@ void NetworkTask(void* pvParameters) {
 void MiscTask(void* pvParameters) {
   while (true) {
     delay(10 * 60 * 1000);// 每10分钟处理一次其他任务
-    // 关闭AP模式
-    WiFi.AP.end();
+    // 切换到STA模式
+    WiFi.mode(WIFI_STA);
+    // 设置设备信息
+    configStation();
+    // 连接WiFi
+    wifiConnect();
+    // 重置WiFi检查次数
+    deviceStatus.wifi_check_count = 0;
+
     // 删除HTTP任务
     vTaskDelete(taskHandles.httpServerTaskHandle);
     taskHandles.httpServerTaskHandle = NULL;
