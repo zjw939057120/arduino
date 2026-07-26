@@ -1281,14 +1281,16 @@ void CommandTask(void* pvParameters) {
 
 // 网络任务函数，用于处理网络状态检查
 void NetworkTask(void* pvParameters) {
+  // 上报WiFi状态
+  sendCWStateReport();
   while (true) {
     // 每10秒检查一次网络状态
     delay(10000);
     if(WiFi.status() != WL_CONNECTED) {
       if(deviceStatus.wifi_scaning) {
         continue;
-      } else if(deviceStatus.wifi_check_count >= 2) {
-        // 连接失败超过2次，认为连接失败
+      } else if(deviceStatus.wifi_check_count >= 4) {
+        // 连接失败超过4次，认为连接失败
         continue;
       }
       // 设置设备信息
