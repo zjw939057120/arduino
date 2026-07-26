@@ -5,6 +5,33 @@
 
 NetworkServer modbusServer;
 
+// 寄存器地址映射: 按MQTT发布顺序
+// 0:CO2, 1:CH2O, 2:TVOC, 3:PM25, 4:PM100, 5:TEMP, 6:RH, 7:PM10, 8:TYPE
+// 9~28: bleSensorData[0~9].temp, bleSensorData[0~9].hum
+uint16_t getModbusRegister(uint16_t addr) {
+  switch (addr) {
+    case 0: return sensorData.CO2;
+    case 1: return sensorData.CH2O;
+    case 2: return sensorData.TVOC;
+    case 3: return sensorData.PM25;
+    case 4: return sensorData.PM100;
+    case 5: return sensorData.TEMP;
+    case 6: return sensorData.RH;
+    case 7: return sensorData.PM10;
+    case 8: return sensorData.TYPE;
+    default:
+      if (addr >= 9 && addr <= 28) {
+        uint16_t idx = addr - 9;
+        if (idx % 2 == 0) {
+          return bleSensorData[idx / 2].temp;
+        } else {
+          return bleSensorData[idx / 2].hum;
+        }
+      }
+      return 0;
+  }
+}
+
 void ModbusServerStart() {
   delay(5000); // 等待5秒，确保WiFi连接稳定
 
@@ -14,52 +41,104 @@ void ModbusServerStart() {
 }
 
 void ModbusServerHandler() {
-  NetworkClient client = modbusServer.accept();  // listen for incoming clients
+  NetworkClient client = modbusServer.accept();
 
-  if (client) {                     // if you get a client,
-    Serial.println("New Client.");  // print a message out the serial port
-    String currentLine = "";        // make a String to hold incoming data from the client
-    while (client.connected()) {    // loop while the client's connected
-      if (client.available()) {     // if there's bytes to read from the client,
-        char c = client.read();     // read a byte, then
-        Serial.write(c);            // print it out the serial monitor
-        if (c == '\n') {            // if the byte is a newline character
+  if (client) {
+    Serial.println("Modbus Client Connected.");
 
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (currentLine.length() == 0) {
-            // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-            // and a content-type so the client knows what's coming, then a blank line:
-            client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/html");
-            client.println();
+    while (client.connected()) {
+      if (client.available()) {
+        // 读取 MBAP 头部 (7字节)
+        uint8_t mbap[7];
+        if (client.read(mbap, 7) != 7) {
+          break;
+        }
 
-            // the content of the HTTP response follows the header:
-            client.print("Click <a href=\"/H\">here</a> to turn the LED on pin 5 on.<br>");
-            client.print("Click <a href=\"/L\">here</a> to turn the LED on pin 5 off.<br>");
+        uint16_t transactionId = (mbap[0] << 8) | mbap[1];
+        uint16_t protocolId = (mbap[2] << 8) | mbap[3];
+        uint16_t length = (mbap[4] << 8) | mbap[5];
+        uint8_t unitId = mbap[6];
 
-            // The HTTP response ends with another blank line:
-            client.println();
-            // break out of the while loop:
+        // 验证协议ID
+        if (protocolId != 0) {
+          break;
+        }
+
+        // 读取 PDU
+        uint8_t pdu[256];
+        int pduLen = length - 1; // 减去 Unit ID
+        if (pduLen <= 0 || pduLen > 256) {
+          break;
+        }
+
+        if (client.read(pdu, pduLen) != pduLen) {
+          break;
+        }
+
+        uint8_t functionCode = pdu[0];
+        uint8_t response[256];
+        int responseLen = 0;
+
+        // 处理功能码
+        switch (functionCode) {
+          case 0x03: // Read Holding Registers
+          case 0x04: // Read Input Registers
+          {
+            if (pduLen < 5) break;
+            uint16_t startAddr = (pdu[1] << 8) | pdu[2];// 起始地址
+            uint16_t quantity = (pdu[3] << 8) | pdu[4];// 读取寄存器数量
+
+            // 构建响应
+            response[0] = functionCode;
+            response[1] = quantity * 2; // 字节数
+            for (int i = 0; i < quantity; i++) {
+              uint16_t value = getModbusRegister(startAddr + i);
+              response[2 + i * 2] = (value >> 8) & 0xFF;
+              response[3 + i * 2] = value & 0xFF;
+            }
+            responseLen = 2 + quantity * 2;
             break;
-          } else {  // if you got a newline, then clear currentLine:
-            currentLine = "";
           }
-        } else if (c != '\r') {  // if you got anything else but a carriage return character,
-          currentLine += c;      // add it to the end of the currentLine
+
+          case 0x06: // Write Single Register
+          {
+            if (pduLen < 5) break;
+            // 回写确认
+            response[0] = functionCode;
+            response[1] = pdu[1]; // 寄存器地址高字节
+            response[2] = pdu[2]; // 寄存器地址低字节
+            response[3] = pdu[3]; // 值高字节
+            response[4] = pdu[4]; // 值低字节
+            responseLen = 5;
+            break;
+          }
+
+          default:
+            // 不支持的功能码，返回异常响应
+            response[0] = functionCode | 0x80;
+            response[1] = 0x01; // 非法功能码
+            responseLen = 2;
+            break;
         }
 
-        // Check to see if the client request was "GET /H" or "GET /L":
-        if (currentLine.endsWith("GET /H")) {
-          digitalWrite(5, HIGH);  // GET /H turns the LED on
-        }
-        if (currentLine.endsWith("GET /L")) {
-          digitalWrite(5, LOW);  // GET /L turns the LED off
-        }
+        // 构建 MBAP 响应头部
+        uint8_t responseMbap[7];
+        responseMbap[0] = (transactionId >> 8) & 0xFF;
+        responseMbap[1] = transactionId & 0xFF;
+        responseMbap[2] = 0; // 协议ID高字节
+        responseMbap[3] = 0; // 协议ID低字节
+        uint16_t respLength = responseLen + 1; // PDU长度 + Unit ID
+        responseMbap[4] = (respLength >> 8) & 0xFF;
+        responseMbap[5] = respLength & 0xFF;
+        responseMbap[6] = unitId;
+
+        // 发送响应
+        client.write(responseMbap, 7);
+        client.write(response, responseLen);
       }
     }
-    // close the connection:
+
     client.stop();
-    Serial.println("Client Disconnected.");
+    Serial.println("Modbus Client Disconnected.");
   }
 }
