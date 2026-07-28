@@ -1233,16 +1233,15 @@ void MySerialTask(void* pvParameters) {
 void BLESensorTask(void* pvParameters) {
   while (true) {
     delay(5000);// 每5秒处理一次传感器数据
-    if (bleCount == 0) {
-      continue; // 如果没有配置BLE传感器，则跳过本次循环
+    // 如果正在扫描BLE设备，则跳过本次循环
+    if (deviceStatus.ble_scaning) {
+      continue;
     }
-    else if (deviceStatus.ble_scaning) {
-      continue; // 如果正在扫描BLE设备，则跳过本次循环
+    // 如果有配置BLE传感器，则开始扫描
+    else if (bleCount > 0) {
+      pBLEScan->setAdvertisedDeviceCallbacks(&bleSensorCallback);
+      pBLEScan->start(5, false); // 开始扫描5秒
     }
-    // 设置回调函数
-    pBLEScan->setAdvertisedDeviceCallbacks(&bleSensorCallback);
-    pBLEScan->start(5, false); // 开始扫描5秒
-    // 等待扫描完成
     sendBleSensorReport();
   }
 }
@@ -1403,7 +1402,7 @@ int sendBleSensorReport() {
   uint8_t cwState = getATCWState();
   int8_t rssi = WiFi.RSSI();
   // 发送BLE传感器数据
-  MySerial.printf("+BLE_SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum, cwState, rssi);
+  MySerial.printf("+BLE_SENSOR:%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\r\n", bleCount, bleSensorData[0].temp, bleSensorData[0].hum, bleSensorData[1].temp, bleSensorData[1].hum, bleSensorData[2].temp, bleSensorData[2].hum, bleSensorData[3].temp, bleSensorData[3].hum, bleSensorData[4].temp, bleSensorData[4].hum, bleSensorData[5].temp, bleSensorData[5].hum, bleSensorData[6].temp, bleSensorData[6].hum, bleSensorData[7].temp, bleSensorData[7].hum, bleSensorData[8].temp, bleSensorData[8].hum, bleSensorData[9].temp, bleSensorData[9].hum, cwState, rssi);
   return bleCount;
 }
 
