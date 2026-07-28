@@ -1014,6 +1014,8 @@ void DoWiFiConnect(const char* ssid, const char* pwd) {
   strncpy(wifiConfig.pwd, pwd, sizeof(wifiConfig.pwd) - 1);
   wifiConfig.pwd[sizeof(wifiConfig.pwd) - 1] = '\0';
 
+  // 设置设备信息
+  configStation();
   // 连接WiFi
   wifiConnect();
   // 重置WiFi检查次数
@@ -1304,23 +1306,23 @@ void NetworkTask(void* pvParameters) {
 
 // 其他任务函数，用于处理其他任务，如关闭AP模式
 void MiscTask(void* pvParameters) {
+  delay(10 * 60 * 1000); // 10分钟后关闭AP模式
+  // 切换到STA模式
+  WiFi.mode(WIFI_STA);
+  // 设置设备信息
+  configStation();
+  // 连接WiFi
+  wifiConnect();
+  // 重置WiFi检查次数
+  deviceStatus.wifi_check_count = 0;
+  // 删除HTTP任务
+  vTaskDelete(taskHandles.httpServerTaskHandle);
+  taskHandles.httpServerTaskHandle = NULL;
+
   while (true) {
-    delay(10 * 60 * 1000);// 每10分钟处理一次其他任务
-    // 切换到STA模式
-    WiFi.mode(WIFI_STA);
-    // 设置设备信息
-    configStation();
-    // 连接WiFi
-    wifiConnect();
+    delay(10 * 60 * 1000);// 每10分钟检查一次网络状态
     // 重置WiFi检查次数
     deviceStatus.wifi_check_count = 0;
-
-    // 删除HTTP任务
-    vTaskDelete(taskHandles.httpServerTaskHandle);
-    taskHandles.httpServerTaskHandle = NULL;
-    // 删除任务
-    vTaskDelete(NULL);
-    taskHandles.miscTaskHandle = NULL;
   }
 }
 
