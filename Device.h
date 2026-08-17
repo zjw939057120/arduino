@@ -9,6 +9,8 @@ struct BLESensorData {
   uint16_t temp;
   // 湿度传感器
   uint16_t hum;
+  // 时间戳
+  uint64_t timestamp;
 };
 // 传感器数据结构体
 struct SensorData {

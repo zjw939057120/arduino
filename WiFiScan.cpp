@@ -156,6 +156,8 @@ public:
     bleSensorData[index].temp = ((uint8_t)advData[advLen - 3] << 8) | (uint8_t)advData[advLen - 4];
     // 湿度数据
     bleSensorData[index].hum = ((uint8_t)advData[advLen - 1] << 8) | (uint8_t)advData[advLen - 2];
+    // 时间戳
+    bleSensorData[index].timestamp = millis();
   }
 };
 
@@ -1392,11 +1394,19 @@ int findBleDevice(const char* addr) {
 }
 
 int sendBleSensorReport() {
+  uint64_t timestamp = millis();
   MySerial.flush();
-  // 初始化未检测到的传感器数据为0
-  for (int i = bleCount; i < MAX_BLE_ADDRESSES; i++) {
-    bleSensorData[i].temp = 0;
-    bleSensorData[i].hum = 0;
+
+  for (int i = 0; i < MAX_BLE_ADDRESSES; i++) {
+    // 未选择的设备默认值为0
+    if(i >= bleCount && bleSensorData[i].hum != 0) {
+      bleSensorData[i].temp = 0;
+      bleSensorData[i].hum = 0;
+    }else if(timestamp - bleSensorData[i].timestamp >= 60000 && bleSensorData[i].hum != 0) {
+      //60秒内未扫描到设备，认为设备掉线
+      bleSensorData[i].temp = 0;
+      bleSensorData[i].hum = 0;
+    }
   }
 
   uint8_t cwState = getATCWState();
