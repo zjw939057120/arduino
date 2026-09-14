@@ -61,18 +61,11 @@
 #define AT_CMD_DEVICE_DEF "AT+DEVICE_DEF="
 // 获取设备配置指令
 #define AT_CMD_DEVICE_DEF_GET "AT+DEVICE_DEF?"
-
-// 任务句柄
-TaskHandles taskHandles = {NULL,NULL, NULL,NULL, NULL, NULL};
-// WiFi配置
-WiFiConfig wifiConfig;
-// 设备配置
-DeviceConfig deviceConfig;
-// 设备状态
-DeviceStatus deviceStatus = {false, false, 0};
-// 串口配置
-UartConfig uartConfig = {9600, 8, 1, 0, 1};
-// 串口
+// 设置版本指令
+#define AT_CMD_VERSION "AT+VERSION="
+// 获取版本指令
+#define AT_CMD_VERSION_GET "AT+VERSION?"
+// 主串口
 HardwareSerial MySerial(1);
 
 typedef struct {
@@ -612,7 +605,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     //禁用自动重连
     WiFi.setAutoReconnect(false);
     MySerial.println(F("WIFI CONNECTED"));
-    saveWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
+    saveSystemConfig(systemConfig.ssid, systemConfig.pwd);
   }
   break;
   case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
@@ -720,7 +713,7 @@ void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int 
   MySerial.printf("+UART_DEF:%d,%d,%d,%d,%d\r\n", baud, dataBits, stopBits, parity, addr);
 }
 
-void saveWiFiConfig(char* ssid, char* pwd) {
+void saveSystemConfig(char* ssid, char* pwd) {
   preferences.begin(NVS_WIFI_NAMESPACE, false);
   String tmp = "";
   tmp = preferences.getString("ssid", "");
@@ -734,7 +727,7 @@ void saveWiFiConfig(char* ssid, char* pwd) {
   preferences.end();
 }
 
-bool loadWiFiConfig(char* ssid, char* pwd) {
+bool loadSystemConfig(char* ssid, char* pwd) {
   preferences.begin(NVS_WIFI_NAMESPACE, true);
   String savedSsid = preferences.getString("ssid", "");
   String savedPwd = preferences.getString("pwd", "");
@@ -883,7 +876,7 @@ void configStation(){
 
 void wifiConnect() {
   // 连接WiFi
-  WiFi.begin(wifiConfig.ssid, strcmp(wifiConfig.pwd, "") == 0 ? NULL : wifiConfig.pwd);
+  WiFi.begin(systemConfig.ssid, strcmp(systemConfig.pwd, "") == 0 ? NULL : systemConfig.pwd);
 }
 
 void restore() {
@@ -905,7 +898,7 @@ void restore() {
 }
 
 void sendCWJAPReport() {
-  MySerial.printf("+CWJAP:\"%s\",\"%s\"\r\n", wifiConfig.ssid, wifiConfig.pwd);
+  MySerial.printf("+CWJAP:\"%s\",\"%s\"\r\n", systemConfig.ssid, systemConfig.pwd);
 }
 
 void SendScanWiFiReport() {
@@ -1011,10 +1004,10 @@ void DoWiFiConnect(const char* ssid, const char* pwd) {
     return;
   }
 
-  strncpy(wifiConfig.ssid, ssid, sizeof(wifiConfig.ssid) - 1);
-  wifiConfig.ssid[sizeof(wifiConfig.ssid) - 1] = '\0';
-  strncpy(wifiConfig.pwd, pwd, sizeof(wifiConfig.pwd) - 1);
-  wifiConfig.pwd[sizeof(wifiConfig.pwd) - 1] = '\0';
+  strncpy(systemConfig.ssid, ssid, sizeof(systemConfig.ssid) - 1);
+  systemConfig.ssid[sizeof(systemConfig.ssid) - 1] = '\0';
+  strncpy(systemConfig.pwd, pwd, sizeof(systemConfig.pwd) - 1);
+  systemConfig.pwd[sizeof(systemConfig.pwd) - 1] = '\0';
 
   // 设置设备信息
   configStation();
@@ -1025,9 +1018,42 @@ void DoWiFiConnect(const char* ssid, const char* pwd) {
   MySerial.println("OK");
 
   Serial.print("connect ssid: ");
-  Serial.print(wifiConfig.ssid);
+  Serial.print(systemConfig.ssid);
   Serial.print(" pwd: ");
-  Serial.println(wifiConfig.pwd);
+  Serial.println(systemConfig.pwd);
+}
+
+
+bool parseVersionCommand(char* cmd) {
+  char* token = cmd + strlen(AT_CMD_VERSION); // skip "AT+VERSION="
+  // 解析 type
+  char* comma = strchr(token, ',');
+  if (comma == NULL) return false;
+  uint8_t type = atoi(token);
+  // 解析 version
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma != NULL) return false;
+  switch (type) {
+    case 0:
+      systemConfig.screen_version = atoi(token);
+      break;
+    case 1:
+      systemConfig.system_version = atoi(token);
+      break;
+    case 2:
+      systemConfig.network_version = atoi(token);
+      break;
+    default:
+      return false;
+      break;
+  }
+
+  return true;
+}
+
+void sendVersionReport() {
+  MySerial.printf("+VERSION:%d.%d.%d\r\n", systemConfig.screen_version, systemConfig.system_version, systemConfig.network_version);
 }
 
 void processCommand(char* cmd) {
@@ -1147,7 +1173,18 @@ void processCommand(char* cmd) {
    } else if (strcmp(cmd, AT_CMD_DEVICE_DEF_GET) == 0) {
     // 获取设备参数
     sendDeviceConfigReport(deviceConfig.local_ip, deviceConfig.gateway_ip, deviceConfig.subnet_mask, deviceConfig.dns_ip);
-   } else {  
+  } else if (strncmp(cmd, AT_CMD_VERSION, strlen(AT_CMD_VERSION)) == 0) {
+    // 设置版本
+    if (parseVersionCommand(cmd)) {
+      sendVersionReport();
+    } else {
+      // 版本配置错误
+      MySerial.println(F("ERROR"));
+    }
+   } else if (strcmp(cmd, AT_CMD_VERSION_GET) == 0) {
+    // 获取版本
+    sendVersionReport();
+   } else {
     // 无效指令
     Serial.print(F("ERROR:"));
     Serial.println(cmd);
@@ -1466,7 +1503,7 @@ void setupEntry() {
   // 加载设备配置
   loadDeviceConfig();
   // 加载WiFi配置
-  loadWiFiConfig(wifiConfig.ssid, wifiConfig.pwd);
+  loadSystemConfig(systemConfig.ssid, systemConfig.pwd);
   // 加载UART配置
   int baud = 0;
   int dataBits = 0;

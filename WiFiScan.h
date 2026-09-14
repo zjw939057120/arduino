@@ -5,55 +5,6 @@
 #include <WiFi.h>
 #include "Device.h"
 
-typedef struct {
-    TaskHandle_t debugSerialTaskHandle;
-    TaskHandle_t mySerialTaskHandle;
-    TaskHandle_t bleTaskHandle;
-    TaskHandle_t mqttTaskHandle;
-    TaskHandle_t modbusTaskHandle;
-    TaskHandle_t httpServerTaskHandle;
-    TaskHandle_t commandTaskHandle;
-    TaskHandle_t networkTaskHandle;
-    TaskHandle_t miscTaskHandle;
-} TaskHandles;// 任务句柄结构体，用于存储所有任务的句柄
-
-typedef struct {
-  char ssid[33];//当前连接的无线网络名称
-  char pwd[65];//当前连接的无线网络密码
-} WiFiConfig;// WiFi配置结构体，用于存储当前连接的无线网络名称和密码
-
-typedef struct {
-  char local_ip[16];//设备IP地址
-  char gateway_ip[16];//网关IP地址
-  char subnet_mask[16];//子网掩码
-  char dns_ip[16];//DNS服务器IP地址
-
-  //AP配置
-  char ap_ssid[33];//AP无线网络名称
-  char ap_pwd[65];//AP无线网络密码
-  char mac[18];//MAC地址
-} DeviceConfig;// 设备配置结构体，用于存储设备的IP地址、网关IP地址、子网掩码、DNS服务器IP地址、AP无线网络名称、AP无线网络密码、MAC地址
-
-typedef struct {
-  bool ble_scaning;         // BLE扫描状态
-  bool wifi_scaning;        // WiFi扫描状态
-  uint8_t wifi_check_count; // WiFi检查次数，用于判断是否需要重新连接WiFi
-} DeviceStatus;// 设备状态结构体，用于存储设备的BLE扫描状态、WiFi扫描状态和WiFi检查次数
-
-typedef struct {
-  int baud;//波特率
-  int dataBits;//数据位
-  int stopBits;//停止位
-  int parity;//校验位
-  int addr;//地址位
-} UartConfig;// 串口配置结构体，用于存储串口的波特率、数据位、停止位、校验位和地址位
-
-extern TaskHandles taskHandles;
-extern WiFiConfig wifiConfig;
-extern DeviceConfig deviceConfig;
-extern DeviceStatus deviceStatus;
-extern UartConfig uartConfig;
-
 void setupEntry();
 void loopEntry();
 int getEcnValue(wifi_auth_mode_t encryptionType);
@@ -72,8 +23,8 @@ bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* a
 void doSaveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr);
 void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr);
 void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int addr);
-void saveWiFiConfig(char* ssid, char* pwd);
-bool loadWiFiConfig(char* ssid, char* pwd);
+void saveSystemConfig(char* ssid, char* pwd);
+bool loadSystemConfig(char* ssid, char* pwd);
 bool parseDeviceConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char* subnet_mask, char* dns_ip);
 void doSaveDeviceConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip);
 void saveDeviceConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip);
@@ -87,6 +38,8 @@ void SendScanWiFiReport();
 void ScanWiFiHandler(char* content, int size);
 void DoBLEScan(int duration);
 void DoWiFiConnect(const char* ssid, const char* pwd);
+bool parseVersionCommand(char* cmd);
+void sendVersionReport();
 void processCommand(char* cmd);
 void DebugSerialTask(void* pvParameters);
 void MySerialTask(void* pvParameters);
