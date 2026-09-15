@@ -65,10 +65,18 @@
 #define AT_CMD_VERSION "AT+VERSION="
 // 获取版本指令
 #define AT_CMD_VERSION_GET "AT+VERSION?"
-// 主串口
-HardwareSerial MySerial(1);
 
-typedef struct {
+#if IS_DEBUG_ENV
+// 调试串口
+#define MySerial Serial
+#else
+// 串口1
+#define MySerial Serial1
+#endif
+
+
+typedef struct __attribute__((packed)) // 结构体内存紧凑
+{
   char cmd[SERIAL_BUFFER_SIZE];
 } CommandMessage;
 
@@ -310,6 +318,7 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
     return false;
   }
   *next = '\0';
+  // 解析波特率
   *baud = atoi(paramStart);
 
   char* token = next + 1;
@@ -318,6 +327,7 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
     return false;
   }
   *next = '\0';
+  // 解析数据位
   *dataBits = atoi(token);
 
   token = next + 1;
@@ -326,26 +336,27 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
     return false;
   }
   *next = '\0';
+  // 解析停止位
   *stopBits = atoi(token);
 
   token = next + 1;
-  if (token == NULL || *token == '\0') {
-    return false;
-  }
-
   next = strchr(token, ',');
   if (next == NULL) {
-    *parity = atoi(token);
-    *addr = 0;
-  } else {
-    *next = '\0';
-    *parity = atoi(token);
-    token = next + 1;
-    if (token == NULL || *token == '\0') {
-      return false;
-    }
-    *addr = atoi(token);
+    return false;
   }
+  *next = '\0';
+  // 解析校验位
+  *parity = atoi(token);
+
+  token = next + 1;
+  next = strchr(token, ',');
+  if (next != NULL) {
+    return false;//最后一个参数
+  }
+  *next = '\0';
+  // 解析地址位
+  *addr = atoi(token);
+
 
   // Validation: ESP32-C3 ranges and requested numeric encoding
   if (*baud < 80 || *baud > 5000000) return false;
@@ -484,18 +495,14 @@ bool parseBleListCommand(char* cmd, int* count) {
   return true;
 }
 
-bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* password){
+bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* password, char* prefix){
   char* token = cmd + strlen(AT_CMD_MQTT_DEF); // skip "AT+MQTT_DEF="
   // 解析 IP
   char* comma = strchr(token, ',');
   if (comma == NULL) return false;
-  else if(*token == '"') {
-    // 跳过双引号
-    token++;
-    *(comma - 1) = '\0';
-  }else {
-    *comma = '\0';
-  }
+  // 跳过双引号
+  token++;
+  *(comma - 1) = '\0';
   strncpy(ip, token, 15);
   ip[15] = '\0';
   // 解析 PORT
@@ -507,31 +514,34 @@ bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* pass
   token = comma + 1;
   comma = strchr(token, ',');
   if (comma == NULL) return false;
-  else if(*token == '"') {
-    // 跳过双引号
-    token++;
-    *(comma - 1) = '\0';
-  }else {
-    *comma = '\0';
-  }
+  // 跳过双引号
+  token++;
+  *(comma - 1) = '\0';
   strncpy(username, token, 15);
   username[15] = '\0';
   // 解析 PASSWORD
   token = comma + 1;
   comma = strchr(token, ',');
-  if (comma != NULL) return false;
-  else if(*token == '"') {
-    // 跳过双引号
-    token++;
-    char* end = token + strlen(token);
-    *(end - 1) = '\0';
-  }
+  if (comma == NULL) return false;
+  // 跳过双引号
+  token++;
+  *(comma - 1) = '\0';
   strncpy(password, token, 15);
   password[15] = '\0';
+  // 解析 PREFIX
+  token = comma + 1;
+  comma = strchr(token, ',');
+  if (comma != NULL) return false;//最后一个参数
+  // 跳过双引号
+  token++;
+  char* end = token + strlen(token);
+  *(end - 1) = '\0';
+  strncpy(prefix, token, 31);
+  prefix[31] = '\0';
   return true;
 }
 
-void saveMQTTConfig(char* ip, int port, char* username, char* password) {
+void saveMQTTConfig(char* ip, int port, char* username, char* password, char* prefix) {
   preferences.begin(NVS_MQTT_NAMESPACE, false);
   if (!preferences.getString("ip", "").equals(ip)) {
     preferences.putString("ip", ip);
@@ -545,13 +555,21 @@ void saveMQTTConfig(char* ip, int port, char* username, char* password) {
   if (!preferences.getString("password", "").equals(password)) {
     preferences.putString("password", password);
   }
+  if (!preferences.getString("prefix", "").equals(prefix)) {
+    preferences.putString("prefix", prefix);
+  }
   preferences.end();
 
   // 更新MQTT配置
-  strcpy(mqttConfig.ip, ip);
+  strncpy(mqttConfig.ip, ip, 16);
+  mqttConfig.ip[15] = '\0';
   mqttConfig.port = port;
-  strcpy(mqttConfig.username, username);
-  strcpy(mqttConfig.password, password);
+  strncpy(mqttConfig.username, username, 16);
+  mqttConfig.username[15] = '\0';
+  strncpy(mqttConfig.password, password, 16);
+  mqttConfig.password[15] = '\0';
+  strncpy(mqttConfig.prefix, prefix, 32);
+  mqttConfig.prefix[31] = '\0';
 }
 
 void saveBleListConfig() {
@@ -673,14 +691,15 @@ void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr) 
   preferences.end();
 }
 
-bool loadMQTTConfig(char* ip, int* port, char* username, char* password) {
+bool loadMQTTConfig(char* ip, int* port, char* username, char* password, char* prefix) {
   preferences.begin(NVS_MQTT_NAMESPACE, true);
   String savedIp = preferences.getString("ip", "");
   int savedPort = preferences.getInt("port", 0);
   String savedUsername = preferences.getString("username", "");
   String savedPassword = preferences.getString("password", "");
+  String savedPrefix = preferences.getString("prefix", "");
   preferences.end();
-  if (savedIp.length() == 0 || savedPort == 0 || savedUsername.length() == 0 || savedPassword.length() == 0) {
+  if (savedIp.length() == 0 || savedPort == 0 || savedUsername.length() == 0 || savedPassword.length() == 0 || savedPrefix.length() == 0) {
     return false;
   }
   strncpy(ip, savedIp.c_str(), 16);
@@ -690,11 +709,13 @@ bool loadMQTTConfig(char* ip, int* port, char* username, char* password) {
   username[15] = '\0';
   strncpy(password, savedPassword.c_str(), 16);
   password[15] = '\0';
+  strncpy(prefix, savedPrefix.c_str(), 32);
+  prefix[31] = '\0';
   return true;
 }
 
-void sendMQTTConfigReport(char* ip, int port, char* username, char* password){
-  MySerial.printf("+MQTT_DEF:\"%s\",%d,\"%s\",\"%s\"\r\n", ip, port, username, password);
+void sendMQTTConfigReport(char* ip, int port, char* username, char* password, char* prefix){
+  MySerial.printf("+MQTT_DEF:\"%s\",%d,\"%s\",\"%s\",\"%s\"\r\n", ip, port, username, password, prefix);
 }
 
 bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* addr) {
@@ -788,7 +809,7 @@ bool parseDeviceConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char*
   // 解析 DNS_IP
   token = comma + 1;
   comma = strchr(token, ',');
-  if (comma != NULL) return false;
+  if (comma != NULL) return false;//最后一个参数
   else if(*token == '"') {
     // 跳过双引号
     token++;
@@ -1033,7 +1054,7 @@ bool parseVersionCommand(char* cmd) {
   // 解析 version
   token = comma + 1;
   comma = strchr(token, ',');
-  if (comma != NULL) return false;
+  if (comma != NULL) return false;//最后一个参数
   switch (type) {
     case 0:
       systemConfig.screen_version = atoi(token);
@@ -1053,7 +1074,7 @@ bool parseVersionCommand(char* cmd) {
 }
 
 void sendVersionReport() {
-  MySerial.printf("+VERSION:%d.%d.%d\r\n", systemConfig.screen_version, systemConfig.system_version, systemConfig.network_version);
+  MySerial.printf("+VERSION:%d,%d,%d\r\n", systemConfig.screen_version, systemConfig.system_version, systemConfig.network_version);
 }
 
 void processCommand(char* cmd) {
@@ -1077,6 +1098,7 @@ void processCommand(char* cmd) {
     char pwd[65];
     
     if (parseWiFiCommand(cmd, ssid, pwd)) {
+      Serial.printf("%s,%s\r\n", ssid, pwd);
       DoWiFiConnect(ssid, pwd);
     } else {
       // 连接WiFi错误
@@ -1091,6 +1113,7 @@ void processCommand(char* cmd) {
     int duration = 0;
     
     if (parseBLECommand(cmd, &mode, &duration,&filter_type,filter_param)) {
+      Serial.printf("%d,%d,%d,%s\r\n", mode, duration, filter_type, filter_param);
       DoBLEScan(duration);
     } else {
       // BLE扫描错误
@@ -1100,6 +1123,7 @@ void processCommand(char* cmd) {
     //保存BLE列表
     int count = 0;
     if (parseBleListCommand(cmd, &count)) {
+      Serial.printf("%d\r\n", count);
       bleCount = count;
       saveBleListConfig();
       sendBleListReport(count);
@@ -1119,6 +1143,7 @@ void processCommand(char* cmd) {
     int addr = 0;
 
     if (parseUartConfigCommand(cmd, &baud, &dataBits, &stopBits, &parity, &addr)) {
+      Serial.printf("%d,%d,%d,%d,%d\r\n", baud, dataBits, stopBits, parity, addr);
       saveUartConfig(baud, dataBits, stopBits, parity, addr);
       uartConfig.baud = baud;
       uartConfig.dataBits = dataBits;
@@ -1145,9 +1170,11 @@ void processCommand(char* cmd) {
     int port = 0;
     char username[16];
     char password[16];
-    if (parseMQTTCommand(cmd, ip, &port, username, password)) {
-      saveMQTTConfig(ip, port, username, password);
-      sendMQTTConfigReport(ip, port, username, password);
+    char prefix[32];
+    if (parseMQTTCommand(cmd, ip, &port, username, password, prefix)) {
+      Serial.printf("%s,%d,%s,%s,%s\r\n", ip, port, username, password, prefix);
+      saveMQTTConfig(ip, port, username, password, prefix);
+      sendMQTTConfigReport(ip, port, username, password, prefix);
       // 重新连接MQTT服务器
       MQTTSubClientReConnect();
     } else {
@@ -1156,7 +1183,7 @@ void processCommand(char* cmd) {
     }
   } else if (strcmp(cmd, AT_CMD_MQTT_DEF_GET) == 0) {
     // 获取MQTT参数
-    sendMQTTConfigReport(mqttConfig.ip, mqttConfig.port, mqttConfig.username, mqttConfig.password);
+    sendMQTTConfigReport(mqttConfig.ip, mqttConfig.port, mqttConfig.username, mqttConfig.password, mqttConfig.prefix);
   } else if (strncmp(cmd, AT_CMD_DEVICE_DEF, strlen(AT_CMD_DEVICE_DEF)) == 0) {
     // 设备配置
     char local_ip[16];
@@ -1164,6 +1191,7 @@ void processCommand(char* cmd) {
     char subnet_mask[16];
     char dns_ip[16];
     if (parseDeviceConfigCommand(cmd, local_ip, gateway_ip, subnet_mask, dns_ip)) {
+      Serial.printf("%s,%s,%s,%s\r\n", local_ip, gateway_ip, subnet_mask, dns_ip);
       doSaveDeviceConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
     } else {
       // 设备配置错误
@@ -1487,8 +1515,16 @@ void getHostname(char *hostnameStr) {
            (uint8_t)(chipId >> 40)); // 最高位字节对应 MAC 地址的最后一个字节
 }
 void setupEntry() {
-  Serial.begin(115200);
-  MySerial.begin(115200, SERIAL_8N1, 6, 7); // RX, TX
+  // 初始化串口
+  Serial.begin(115200U);
+  #if IS_DEBUG_ENV
+  // 调试串口
+  MySerial.begin(115200U);
+  #else
+  // 串口1
+  MySerial.begin(115200U, SERIAL_8N1, 6, 7); // RX, TX
+  #endif
+
 
   Serial.print("Arduino Core Version: "); 
   Serial.println(ESP_ARDUINO_VERSION_STR);// 打印 Arduino Core 版本
@@ -1567,7 +1603,7 @@ void setupEntry() {
     // HTTP任务
     xTaskCreate(HttpServerTask, "HttpServer", 8192, NULL, 1, &taskHandles.httpServerTaskHandle);
     // MQTT任务
-    if(loadMQTTConfig(mqttConfig.ip, &mqttConfig.port, mqttConfig.username, mqttConfig.password)) {
+    if(loadMQTTConfig(mqttConfig.ip, &mqttConfig.port, mqttConfig.username, mqttConfig.password, mqttConfig.prefix)) {
       xTaskCreate(MQTTSubClientTask, "MQTTSubClient", 4096, NULL, 1, &taskHandles.mqttTaskHandle);
     }
     // 命令任务
