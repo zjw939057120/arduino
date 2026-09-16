@@ -27,6 +27,8 @@
 #define AT_CMD_RESTART "AT+RST"
 // 列出当前可用的AP
 #define AT_CMD_CWLWAP "AT+CWLAP"
+// 断开与AP的连接
+#define AT_CMD_CWQAP "AT+CWQAP"
 // 连接WiFi指令
 #define AT_CMD_CWJAP "AT+CWJAP="
 // 获取连接WiFi信息指令
@@ -57,6 +59,14 @@
 #define AT_CMD_VERSION "AT+VERSION="
 // 获取版本指令
 #define AT_CMD_VERSION_GET "AT+VERSION?"
+
+typedef enum {
+  CW_STATE_IDLE = 0,//空闲状态
+  CW_STATE_CONNECTED = 1,//已连接状态
+  CW_STATE_CONNECTED_WITH_IP = 2,//已连接且有IP地址状态
+  CW_STATE_SCAN_COMPLETED = 3,//扫描完成状态
+  CW_STATE_DISCONNECTED = 4,//已断开连接状态
+} cw_state_t;
 
 #if IS_DEBUG_ENV
 // 调试串口
@@ -103,9 +113,9 @@ void saveUartConfig(int baud, int dataBits, int stopBits, int parity, int addr);
 // 发送串口配置报告
 void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int addr);
 // 保存系统配置
-void saveSysConfig(char* ssid, char* pwd);
+void saveSysConfig();
 // 加载系统配置
-bool loadSysConfig(char* ssid, char* pwd);
+bool loadSysConfig();
 // 解析网络配置命令
 bool parseNetConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char* subnet_mask, char* dns_ip);
 // 保存网络配置
@@ -132,6 +142,8 @@ void ScanWiFiHandler(char* content, int size);
 void DoBLEScan(int duration);
 // 连接WiFi
 void wifiConnect();
+// 禁用WiFi
+void disableWiFi();
 // 连接WiFi
 void DoWiFiConnect(const char* ssid, const char* pwd);
 // 解析版本命令

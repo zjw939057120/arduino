@@ -586,7 +586,8 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     //禁用自动重连
     WiFi.setAutoReconnect(false);
     MySerial.println(F("WIFI CONNECTED"));
-    saveSysConfig(sysConfig.ssid, sysConfig.pwd);
+    // 保存系统配置
+    saveSysConfig();
   }
   break;
   case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
@@ -676,7 +677,7 @@ bool loadMQTTConfig(char* ip, int* port, char* username, char* password, char* p
   prefix[31] = '\0';
 
   // 打印解析结果
-  Serial.printf("%s:%s,%d,%s,%s,%s\r\n", __func__, ip, port, username, password, prefix);
+  Serial.printf("%s:%s,%d,%s,%s,%s\r\n", __func__, ip, *port, username, password, prefix);
   return true;
 }
 
@@ -702,21 +703,21 @@ void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int 
   MySerial.printf("+UART_DEF:%d,%d,%d,%d,%d\r\n", baud, dataBits, stopBits, parity, addr);
 }
 
-void saveSysConfig(char* ssid, char* pwd) {
+void saveSysConfig() {
   preferences.begin(NVS_SYS_NAMESPACE, false);
   String tmp = "";
   tmp = preferences.getString("ssid", "");
-  if (!tmp.equals(ssid)) {
-    preferences.putString("ssid", ssid);
+  if (!tmp.equals(sysConfig.ssid)) {
+    preferences.putString("ssid", sysConfig.ssid);
   }
   tmp = preferences.getString("pwd", "");
-  if (!tmp.equals(pwd)) {
-    preferences.putString("pwd", pwd);
+  if (!tmp.equals(sysConfig.pwd)) {
+    preferences.putString("pwd", sysConfig.pwd);
   }
   preferences.end();
 }
 
-bool loadSysConfig(char* ssid, char* pwd) {
+bool loadSysConfig() {
   preferences.begin(NVS_SYS_NAMESPACE, true);
   String savedSsid = preferences.getString("ssid", "");
   String savedPwd = preferences.getString("pwd", "");
@@ -726,13 +727,13 @@ bool loadSysConfig(char* ssid, char* pwd) {
     return false;
   }
   
-  strncpy(ssid, savedSsid.c_str(), 32);
-  ssid[31] = '\0';
-  strncpy(pwd, savedPwd.c_str(), 64);
-  pwd[63] = '\0';
+  strncpy(sysConfig.ssid, savedSsid.c_str(), 32);
+  sysConfig.ssid[31] = '\0';
+  strncpy(sysConfig.pwd, savedPwd.c_str(), 64);
+  sysConfig.pwd[63] = '\0';
   
   // 打印解析结果
-  Serial.printf("%s:%s,%s\r\n", __func__, ssid, pwd);
+  Serial.printf("%s:%s,%s\r\n", __func__, sysConfig.ssid, sysConfig.pwd);
   return true;
 }
 
@@ -872,6 +873,11 @@ void configStation(){
 }
 
 void wifiConnect() {
+  // 如果WiFi已禁用，直接断开连接
+  if (sysConfig.ssid[0] == '\0') {
+    WiFi.disconnect();
+    return;
+  }
   // 连接WiFi
   WiFi.begin(sysConfig.ssid, strcmp(sysConfig.pwd, "") == 0 ? NULL : sysConfig.pwd);
 }
@@ -995,6 +1001,17 @@ void DoBLEScan(int duration) {
   deviceStatus.ble_scaning = false;
 }
 
+void disableWiFi() {
+  // 禁用WiFi连接
+  sysConfig.ssid[0] = '\0';
+  sysConfig.pwd[0] = '\0';
+  // 保存系统配置
+  saveSysConfig();
+  // 断开WiFi连接
+  WiFi.disconnect();
+  MySerial.println(F("OK"));
+}
+
 void DoWiFiConnect(const char* ssid, const char* pwd) {
   if (strlen(ssid) == 0) {
     MySerial.println("ERROR");
@@ -1047,7 +1064,7 @@ bool parseVersionCommand(char* cmd) {
   }
   
   // 打印解析结果
-  Serial.printf("%s:%d,%d,%d,%d\r\n", __func__, type, sysConfig.screen_version, sysConfig.system_version, sysConfig.network_version);
+  Serial.printf("%s:%d,%d,%d\r\n", __func__, sysConfig.screen_version, sysConfig.system_version, sysConfig.network_version);
   
   return true;
 }
@@ -1071,6 +1088,9 @@ void processCommand(char* cmd) {
   } else if (strcmp(cmd, AT_CMD_CWLWAP) == 0) {
     // 获取WiFi列表
     SendScanWiFiReport();
+  } else if (strcmp(cmd, AT_CMD_CWQAP) == 0) {
+    // 断开与AP的连接
+    disableWiFi();
   } else if (strncmp(cmd, AT_CMD_CWJAP, strlen(AT_CMD_CWJAP)) == 0) {
     //连接WiFi
     char ssid[33];
@@ -1376,21 +1396,21 @@ uint8_t getATCWState() {
         
         // 如果 IP 不为 0，说明已获取到 IPv4 地址 -> 状态 2
         if (ipRaw != 0) {
-            return 2; 
+            return CW_STATE_CONNECTED_WITH_IP; 
         }
         // IP 为 0，说明已连接上 AP 但尚未获取 IP -> 状态 1
-        return 1; 
+        return CW_STATE_CONNECTED; 
     }
     
     // 2. 处理“未初始化/空闲”状态 -> 状态 0
     if (status == WL_IDLE_STATUS) {
-        return 0; 
+        return CW_STATE_IDLE; 
     }
     
     // 3. 处理“正在连接”状态 -> 状态 3
     // 底层枚举中没有 WL_CONNECTING，WL_SCAN_COMPLETED 代表扫描完成准备连接
     if (status == WL_SCAN_COMPLETED) {
-        return 3; 
+        return CW_STATE_SCAN_COMPLETED; 
     }
     
     // 4. 处理“断开/失败”状态 -> 状态 4
@@ -1399,11 +1419,11 @@ uint8_t getATCWState() {
         status == WL_CONNECTION_LOST || 
         status == WL_CONNECT_FAILED || 
         status == WL_NO_SSID_AVAIL) {
-        return 4; 
+        return CW_STATE_DISCONNECTED; 
     }
     
     // 兜底：对于其他未知状态（如 WL_NO_SHIELD, WL_STOPPED），默认归类为断开状态
-    return 4; 
+    return CW_STATE_DISCONNECTED; 
 }
 
 void sendCWStateReport() {
@@ -1512,7 +1532,7 @@ void setupEntry() {
   // 加载网络配置
   loadNetConfig();
   // 加载系统配置
-  loadSysConfig(sysConfig.ssid, sysConfig.pwd);
+  loadSysConfig();
   // 加载UART配置
   int baud = 0;
   int dataBits = 0;

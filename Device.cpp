@@ -3,7 +3,7 @@
 // 任务句柄
 TaskHandles taskHandles = {NULL,NULL, NULL,NULL, NULL, NULL};
 // 系统配置
-SysConfig sysConfig = {.screen_version = FW_VERSION, .system_version = FW_VERSION, .network_version = FW_VERSION};
+SysConfig sysConfig = {.network_version = FW_VERSION};
 // 网络配置
 NetConfig netConfig;
 // 设备状态

@@ -6,8 +6,8 @@
 
 // 是否为DEBUG环境
 #define IS_DEBUG_ENV 0
-// 固件版本号
-#define FW_VERSION 0
+// 固件版本号X.X.X
+#define FW_VERSION 100
 // BLE设备最大数量
 #define MAX_BLE_ADDRESSES 10
 
