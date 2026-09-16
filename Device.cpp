@@ -3,9 +3,9 @@
 // 任务句柄
 TaskHandles taskHandles = {NULL,NULL, NULL,NULL, NULL, NULL};
 // 系统配置
-SystemConfig systemConfig = {.screen_version = NETWORK_VERSION, .system_version = NETWORK_VERSION, .network_version = NETWORK_VERSION};
-// 设备配置
-DeviceConfig deviceConfig;
+SysConfig sysConfig = {.screen_version = FW_VERSION, .system_version = FW_VERSION, .network_version = FW_VERSION};
+// 网络配置
+NetConfig netConfig;
 // 设备状态
 DeviceStatus deviceStatus = {false, false, 0};
 // 串口配置

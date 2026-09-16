@@ -6,8 +6,8 @@
 
 // 是否为DEBUG环境
 #define IS_DEBUG_ENV 0
-// 网络版本号
-#define NETWORK_VERSION 0
+// 固件版本号
+#define FW_VERSION 0
 // BLE设备最大数量
 #define MAX_BLE_ADDRESSES 10
 
@@ -26,14 +26,14 @@ typedef struct __attribute__((packed)) // 结构体内存紧凑
 
 typedef struct __attribute__((packed)) // 结构体内存紧凑
 {
-  // 系统配置
+  //版本号
   uint16_t screen_version;//屏幕版本号
   uint16_t system_version;//系统版本号
   uint16_t network_version;//网络版本号
-  // WiFi配置
+  // WLAN配置
   char ssid[33];//当前连接的无线网络名称
   char pwd[65];//当前连接的无线网络密码
-} SystemConfig;// 系统配置结构体，用于存储当前连接的无线网络名称和密码
+} SysConfig;// 系统配置结构体，用于存储当前连接的无线网络名称和密码
 
 typedef struct __attribute__((packed)) // 结构体内存紧凑
 {
@@ -46,7 +46,7 @@ typedef struct __attribute__((packed)) // 结构体内存紧凑
   char ap_ssid[33];//AP无线网络名称
   char ap_pwd[65];//AP无线网络密码
   char mac[18];//MAC地址
-} DeviceConfig;// 设备配置结构体，用于存储设备的IP地址、网关IP地址、子网掩码、DNS服务器IP地址、AP无线网络名称、AP无线网络密码、MAC地址
+} NetConfig;// 网络配置结构体，用于存储设备的IP地址、网关IP地址、子网掩码、DNS服务器IP地址、AP无线网络名称、AP无线网络密码、MAC地址
 
 typedef struct __attribute__((packed)) // 结构体内存紧凑
 {
@@ -95,8 +95,8 @@ struct SensorData {
 };
 
 extern TaskHandles taskHandles;
-extern SystemConfig systemConfig;
-extern DeviceConfig deviceConfig;
+extern SysConfig sysConfig;
+extern NetConfig netConfig;
 extern DeviceStatus deviceStatus;
 extern UartConfig uartConfig;
 

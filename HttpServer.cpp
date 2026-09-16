@@ -30,9 +30,6 @@ void handleNotFound() {
 
 void HttpServerStart() {
   delay(5000); // 等待5秒，确保WiFi连接稳定
-
-  // 启动mDNS服务器
-  MDNS.begin(deviceConfig.ap_ssid);
   // 启用CORS
   webServer.enableCORS();
   // 处理根路径
@@ -88,7 +85,7 @@ void handleRequestHome_GET_Handler(char *content, int size) {
            WiFi.localIP().toString().c_str(),
            WiFi.gatewayIP().toString().c_str(),
            WiFi.subnetMask().toString().c_str(),
-           deviceConfig.mac,
+           netConfig.mac,
            WiFi.dnsIP().toString().c_str());
 }
 void handleRequestHome_POST() {
@@ -236,8 +233,8 @@ void handleRequestNetwork_GET() {
   webServer.send(200, HTTP_TYPE_JSON, response);
 }
 void handleRequestNetwork_GET_Handler(char *content, int size) {
-  loadDeviceConfig();
-  snprintf(content, size, "{\"code\":0,\"local_ip\":\"%s\",\"subnet_mask\":\"%s\",\"gateway_ip\":\"%s\",\"dns_ip\":\"%s\"}", deviceConfig.local_ip, deviceConfig.subnet_mask, deviceConfig.gateway_ip, deviceConfig.dns_ip);
+  loadNetConfig();
+  snprintf(content, size, "{\"code\":0,\"local_ip\":\"%s\",\"subnet_mask\":\"%s\",\"gateway_ip\":\"%s\",\"dns_ip\":\"%s\"}", netConfig.local_ip, netConfig.subnet_mask, netConfig.gateway_ip, netConfig.dns_ip);
 }
 void handleRequestNetwork_POST() {
   // 提取各个表单字段的值
@@ -259,8 +256,8 @@ void handleRequestNetwork_POST() {
     return;
   }
 
-  // 保存设备配置
-  doSaveDeviceConfig(local_ip.c_str(), gateway_ip.c_str(), subnet_mask.c_str(), dns_ip.c_str());
+  // 保存网络配置
+  doSaveNetConfig(local_ip.c_str(), gateway_ip.c_str(), subnet_mask.c_str(), dns_ip.c_str());
 
   // 发送JSON的响应
   webServer.send(200, HTTP_TYPE_JSON, response);

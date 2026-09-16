@@ -1,5 +1,4 @@
 #include "ModbusServer.h"
-#include <ESPmDNS.h>
 #include "WiFiScan.h"
 #include "Device.h"
 
@@ -37,7 +36,7 @@ void ModbusServerStart() {
 
   // 启动Modbus TCP服务器
   modbusServer.begin(MODBUS_PORT);
-  Serial.println("MODBUS server started");
+  Serial.printf("Modbus server started on port %d\n", MODBUS_PORT);
 }
 
 void ModbusServerHandler() {

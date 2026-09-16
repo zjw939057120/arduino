@@ -3,7 +3,6 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <ESPmDNS.h>
 #include <WebServer.h>
 
 #define HTTP_PORT 80

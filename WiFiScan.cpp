@@ -13,68 +13,6 @@
 #include "HttpServer.h"
 #include "MQTTSubClient.h"
 
-// 串口缓冲区大小
-#define SERIAL_BUFFER_SIZE 255
-// WiFi配置命名空间
-#define NVS_WIFI_NAMESPACE "wifi_config"
-// 设备配置命名空间
-#define NVS_DEVICE_NAMESPACE "device_config"
-// UART配置命名空间
-#define NVS_UART_NAMESPACE "uart_config"
-// BLE配置命名空间
-#define NVS_BLE_NAMESPACE "ble_config"
-// MQTT配置命名空间
-#define NVS_MQTT_NAMESPACE "mqtt_config"
-// 命令队列大小
-#define COMMAND_QUEUE_SIZE 8
-
-
-// AT指令
-#define AT_CMD_AT "AT"
-// 重启指令
-#define AT_CMD_RESTART "AT+RST"
-// 列出当前可用的AP
-#define AT_CMD_CWLWAP "AT+CWLAP"
-// 连接WiFi指令
-#define AT_CMD_CWJAP "AT+CWJAP="
-// 获取连接WiFi信息指令
-#define AT_CMD_CWJAP_GET "AT+CWJAP?"
-// BLE扫描指令
-#define AT_CMD_BLE_SCAN "AT+BLESCAN="
-// 设置BLE列表指令
-#define AT_CMD_BLE_LST "AT+BLE_LST="
-// 获取BLE列表指令
-#define AT_CMD_BLE_LST_GET "AT+BLE_LST?"
-// 设置UART定义指令
-#define AT_CMD_UART_DEF "AT+UART_DEF="
-// 获取UART定义指令
-#define AT_CMD_UART_DEF_GET "AT+UART_DEF?"
-// 获取WiFi状态指令
-#define AT_CMD_CWSTATE_GET "AT+CWSTATE?"
-// 设置传感器数据指令
-#define AT_CMD_SENSOR "AT+SENSOR="
-// 设置MQTT配置指令
-#define AT_CMD_MQTT_DEF "AT+MQTT_DEF="
-// 获取MQTT配置指令
-#define AT_CMD_MQTT_DEF_GET "AT+MQTT_DEF?"
-// 设置设备配置指令
-#define AT_CMD_DEVICE_DEF "AT+DEVICE_DEF="
-// 获取设备配置指令
-#define AT_CMD_DEVICE_DEF_GET "AT+DEVICE_DEF?"
-// 设置版本指令
-#define AT_CMD_VERSION "AT+VERSION="
-// 获取版本指令
-#define AT_CMD_VERSION_GET "AT+VERSION?"
-
-#if IS_DEBUG_ENV
-// 调试串口
-#define MySerial Serial
-#else
-// 串口1
-#define MySerial Serial1
-#endif
-
-
 typedef struct __attribute__((packed)) // 结构体内存紧凑
 {
   char cmd[SERIAL_BUFFER_SIZE];
@@ -229,7 +167,9 @@ bool parseWiFiCommand(char* cmd, char* ssid, char* pwd) {
   
   strncpy(pwd, start, 64);
   pwd[63] = '\0';
-  
+
+  // 打印解析结果
+  Serial.printf("%s:%s,%s\r\n", __func__, ssid, pwd);
   return true;
 }
 
@@ -353,7 +293,6 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
   if (next != NULL) {
     return false;//最后一个参数
   }
-  *next = '\0';
   // 解析地址位
   *addr = atoi(token);
 
@@ -364,7 +303,9 @@ bool parseUartConfigCommand(char* cmd, int* baud, int* dataBits, int* stopBits, 
   if (*stopBits < 1 || *stopBits > 3) return false; // 1=1bit,2=1.5bit,3=2bit
   if (*parity < 0 || *parity > 2) return false; // 0=None,1=Odd,2=Even
   if (*addr < 0 || *addr > 255) return false;
-
+  
+  // 打印解析结果
+  Serial.printf("%s:%d,%d,%d,%d,%d\r\n", __func__, *baud, *dataBits, *stopBits, *parity, *addr);
   return true;
 }
 
@@ -429,11 +370,10 @@ bool parseSensorCommand(char* cmd, SensorData* data) {
   // 解析 TYPE
   token = comma + 1;
   data->TYPE = atoi(token);
-
-  // Serial.println(String(data->CO2) + "," + String(data->CH2O) + "," + String(data->TVOC) + "," + 
-  //                String(data->PM25) + "," + String(data->PM100) + "," + String(data->TEMP) + ","  + 
-  //                String(data->RH) + "," + String(data->PM10) + ","  + String(data->TYPE));
-   return true;
+  
+  // 打印解析结果
+  // Serial.printf("%s:%d,%d,%d,%d,%d,%d,%d,%d\r\n", __func__, data->CO2, data->CH2O, data->TVOC, data->PM25, data->PM100, data->TEMP, data->RH, data->PM10, data->TYPE);
+  return true;
 }
 
 bool parseBleListCommand(char* cmd, int* count) {
@@ -491,7 +431,9 @@ bool parseBleListCommand(char* cmd, int* count) {
   if (macIdx != *count) {
     return false;
   }
-
+  
+  // 打印解析结果
+  Serial.printf("%s:%d,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\r\n", __func__, *count, bleDevice[0], bleDevice[1], bleDevice[2], bleDevice[3], bleDevice[4], bleDevice[5], bleDevice[6], bleDevice[7], bleDevice[8], bleDevice[9]);
   return true;
 }
 
@@ -501,8 +443,13 @@ bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* pass
   char* comma = strchr(token, ',');
   if (comma == NULL) return false;
   // 跳过双引号
-  token++;
-  *(comma - 1) = '\0';
+  else if(*token == '"') {
+    // 跳过双引号
+    token++;
+    *(comma - 1) = '\0';
+  }else {
+    *comma = '\0';
+  }
   strncpy(ip, token, 15);
   ip[15] = '\0';
   // 解析 PORT
@@ -515,8 +462,13 @@ bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* pass
   comma = strchr(token, ',');
   if (comma == NULL) return false;
   // 跳过双引号
-  token++;
-  *(comma - 1) = '\0';
+  else if(*token == '"') {
+    // 跳过双引号
+    token++;
+    *(comma - 1) = '\0';
+  }else {
+    *comma = '\0';
+  }
   strncpy(username, token, 15);
   username[15] = '\0';
   // 解析 PASSWORD
@@ -524,8 +476,13 @@ bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* pass
   comma = strchr(token, ',');
   if (comma == NULL) return false;
   // 跳过双引号
-  token++;
-  *(comma - 1) = '\0';
+  else if(*token == '"') {
+    // 跳过双引号
+    token++;
+    *(comma - 1) = '\0';
+  }else {
+    *comma = '\0';
+  }
   strncpy(password, token, 15);
   password[15] = '\0';
   // 解析 PREFIX
@@ -533,11 +490,17 @@ bool parseMQTTCommand(char* cmd, char* ip, int* port, char* username, char* pass
   comma = strchr(token, ',');
   if (comma != NULL) return false;//最后一个参数
   // 跳过双引号
-  token++;
-  char* end = token + strlen(token);
-  *(end - 1) = '\0';
+  else if(*token == '"') {
+    // 跳过双引号
+    token++;
+    char* end = token + strlen(token);
+    *(end - 1) = '\0';
+  }
   strncpy(prefix, token, 31);
   prefix[31] = '\0';
+
+  // 打印解析结果
+  Serial.printf("%s:%s,%d,%s,%s,%s\r\n", __func__, ip, *port, username, password, prefix);
   return true;
 }
 
@@ -623,7 +586,7 @@ void WiFiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
     //禁用自动重连
     WiFi.setAutoReconnect(false);
     MySerial.println(F("WIFI CONNECTED"));
-    saveSystemConfig(systemConfig.ssid, systemConfig.pwd);
+    saveSysConfig(sysConfig.ssid, sysConfig.pwd);
   }
   break;
   case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
@@ -711,6 +674,9 @@ bool loadMQTTConfig(char* ip, int* port, char* username, char* password, char* p
   password[15] = '\0';
   strncpy(prefix, savedPrefix.c_str(), 32);
   prefix[31] = '\0';
+
+  // 打印解析结果
+  Serial.printf("%s:%s,%d,%s,%s,%s\r\n", __func__, ip, port, username, password, prefix);
   return true;
 }
 
@@ -726,7 +692,9 @@ bool loadUartConfig(int* baud, int* dataBits, int* stopBits, int* parity, int* a
   *parity = preferences.getInt("parity", 0);// 读取校验位
   *addr = preferences.getInt("addr", 1);// 读取地址
   preferences.end();
-
+  
+  // 打印解析结果
+  Serial.printf("%s:%d,%d,%d,%d,%d\r\n", __func__, *baud, *dataBits, *stopBits, *parity, *addr);
   return true;
 }
 
@@ -734,8 +702,8 @@ void sendUartConfigReport(int baud, int dataBits, int stopBits, int parity, int 
   MySerial.printf("+UART_DEF:%d,%d,%d,%d,%d\r\n", baud, dataBits, stopBits, parity, addr);
 }
 
-void saveSystemConfig(char* ssid, char* pwd) {
-  preferences.begin(NVS_WIFI_NAMESPACE, false);
+void saveSysConfig(char* ssid, char* pwd) {
+  preferences.begin(NVS_SYS_NAMESPACE, false);
   String tmp = "";
   tmp = preferences.getString("ssid", "");
   if (!tmp.equals(ssid)) {
@@ -748,8 +716,8 @@ void saveSystemConfig(char* ssid, char* pwd) {
   preferences.end();
 }
 
-bool loadSystemConfig(char* ssid, char* pwd) {
-  preferences.begin(NVS_WIFI_NAMESPACE, true);
+bool loadSysConfig(char* ssid, char* pwd) {
+  preferences.begin(NVS_SYS_NAMESPACE, true);
   String savedSsid = preferences.getString("ssid", "");
   String savedPwd = preferences.getString("pwd", "");
   preferences.end();
@@ -763,10 +731,12 @@ bool loadSystemConfig(char* ssid, char* pwd) {
   strncpy(pwd, savedPwd.c_str(), 64);
   pwd[63] = '\0';
   
+  // 打印解析结果
+  Serial.printf("%s:%s,%s\r\n", __func__, ssid, pwd);
   return true;
 }
 
-bool parseDeviceConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char* subnet_mask, char* dns_ip){
+bool parseNetConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char* subnet_mask, char* dns_ip){
   char* token = cmd + strlen(AT_CMD_DEVICE_DEF); // skip "AT+DEVICE_DEF="
   // 解析 LOCAL_IP
   char* comma = strchr(token, ',');
@@ -818,12 +788,15 @@ bool parseDeviceConfigCommand(char* cmd, char* local_ip, char* gateway_ip, char*
   }
   strncpy(dns_ip, token, 15);
   dns_ip[15] = '\0';
+  
+  // 打印解析结果
+  Serial.printf("%s:%s,%s,%s,%s\r\n", __func__, local_ip, gateway_ip, subnet_mask, dns_ip);
   return true;
 }
 
-void doSaveDeviceConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip) {
-  saveDeviceConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
-  sendDeviceConfigReport(local_ip, gateway_ip, subnet_mask, dns_ip);
+void doSaveNetConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip) {
+  saveNetConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
+  sendNetConfigReport(local_ip, gateway_ip, subnet_mask, dns_ip);
 
   WiFi.disconnect();
   // 设置设备信息
@@ -834,77 +807,80 @@ void doSaveDeviceConfig(const char* local_ip, const char* gateway_ip, const char
   deviceStatus.wifi_check_count = 0;
 }
 
-void saveDeviceConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip){
-  preferences.begin(NVS_DEVICE_NAMESPACE, false);
+void saveNetConfig(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip){
+  preferences.begin(NVS_NET_NAMESPACE, false);
   if (!preferences.getString("local_ip", "").equals(local_ip))
-    deviceConfig.local_ip, preferences.putString("local_ip", local_ip);
+    netConfig.local_ip, preferences.putString("local_ip", local_ip);
     
   if (!preferences.getString("gateway_ip", "").equals(gateway_ip))
-    deviceConfig.gateway_ip, preferences.putString("gateway_ip", gateway_ip);
+    netConfig.gateway_ip, preferences.putString("gateway_ip", gateway_ip);
 
   if (!preferences.getString("subnet_mask", "").equals(subnet_mask))
-    deviceConfig.subnet_mask, preferences.putString("subnet_mask", subnet_mask);
+    netConfig.subnet_mask, preferences.putString("subnet_mask", subnet_mask);
 
   if (!preferences.getString("dns_ip", "").equals(dns_ip))
-    deviceConfig.dns_ip, preferences.putString("dns_ip", dns_ip);
+    netConfig.dns_ip, preferences.putString("dns_ip", dns_ip);
   preferences.end();
 
-  strcpy(deviceConfig.local_ip, local_ip);
-  strcpy(deviceConfig.gateway_ip, gateway_ip);
-  strcpy(deviceConfig.subnet_mask, subnet_mask);
-  strcpy(deviceConfig.dns_ip, dns_ip);
+  strcpy(netConfig.local_ip, local_ip);
+  strcpy(netConfig.gateway_ip, gateway_ip);
+  strcpy(netConfig.subnet_mask, subnet_mask);
+  strcpy(netConfig.dns_ip, dns_ip);
 }
 
-void sendDeviceConfigReport(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip){
+void sendNetConfigReport(const char* local_ip, const char* gateway_ip, const char* subnet_mask, const char* dns_ip){
   MySerial.printf("+DEVICE_DEF:\"%s\",\"%s\",\"%s\",\"%s\"\r\n", local_ip, gateway_ip, subnet_mask, dns_ip);
 }
 
-void loadDeviceConfig() {
-  // 加载设备配置
-  preferences.begin(NVS_DEVICE_NAMESPACE, true);
+void loadNetConfig() {
+  // 加载网络配置
+  preferences.begin(NVS_NET_NAMESPACE, true);
   // 加载设备IP地址
-  strncpy(deviceConfig.local_ip, preferences.getString("local_ip", "").c_str(), 16);
-  deviceConfig.local_ip[15] = '\0';
+  strncpy(netConfig.local_ip, preferences.getString("local_ip", "").c_str(), 16);
+  netConfig.local_ip[15] = '\0';
   // 加载网关IP地址
-  strncpy(deviceConfig.gateway_ip, preferences.getString("gateway_ip", "").c_str(), 16);
-  deviceConfig.gateway_ip[15] = '\0';
+  strncpy(netConfig.gateway_ip, preferences.getString("gateway_ip", "").c_str(), 16);
+  netConfig.gateway_ip[15] = '\0';
   // 加载子网掩码
-  strncpy(deviceConfig.subnet_mask, preferences.getString("subnet_mask", "").c_str(), 16);
-  deviceConfig.subnet_mask[15] = '\0';
+  strncpy(netConfig.subnet_mask, preferences.getString("subnet_mask", "").c_str(), 16);
+  netConfig.subnet_mask[15] = '\0';
   // 加载DNS服务器IP地址
-  strncpy(deviceConfig.dns_ip, preferences.getString("dns_ip", "").c_str(), 16);
-  deviceConfig.dns_ip[15] = '\0';
+  strncpy(netConfig.dns_ip, preferences.getString("dns_ip", "").c_str(), 16);
+  netConfig.dns_ip[15] = '\0';
   preferences.end();
+  
+  // 打印解析结果
+  Serial.printf("%s:%s,%s,%s,%s\r\n", __func__, netConfig.local_ip, netConfig.gateway_ip, netConfig.subnet_mask, netConfig.dns_ip);
 
   // 加载AP配置
   // 获取设备名称
-  getHostname(deviceConfig.ap_ssid);
+  getHostname(netConfig.ap_ssid);
   // 设置默认密码
-  strcpy(deviceConfig.ap_pwd, "12345678");
+  strcpy(netConfig.ap_pwd, "88888888");
   // 获取设备地址
-  getMacAddress(deviceConfig.mac);
+  getMacAddress(netConfig.mac);
 }
 
 
 void configStation(){
   // 设置设备名称
-  WiFi.hostname(deviceConfig.ap_ssid);
+  WiFi.hostname(netConfig.ap_ssid);
   // 配置静态IP地址
-  if (strcmp(deviceConfig.local_ip, "") != 0 && strcmp(deviceConfig.gateway_ip, "") != 0 && strcmp(deviceConfig.subnet_mask, "") != 0 && strcmp(deviceConfig.dns_ip, "") != 0) {
-    WiFi.config(IPAddress(deviceConfig.local_ip), IPAddress(deviceConfig.gateway_ip), IPAddress(deviceConfig.subnet_mask), IPAddress(deviceConfig.dns_ip));
+  if (strcmp(netConfig.local_ip, "") != 0 && strcmp(netConfig.gateway_ip, "") != 0 && strcmp(netConfig.subnet_mask, "") != 0 && strcmp(netConfig.dns_ip, "") != 0) {
+    WiFi.config(IPAddress(netConfig.local_ip), IPAddress(netConfig.gateway_ip), IPAddress(netConfig.subnet_mask), IPAddress(netConfig.dns_ip));
   }
 }
 
 void wifiConnect() {
   // 连接WiFi
-  WiFi.begin(systemConfig.ssid, strcmp(systemConfig.pwd, "") == 0 ? NULL : systemConfig.pwd);
+  WiFi.begin(sysConfig.ssid, strcmp(sysConfig.pwd, "") == 0 ? NULL : sysConfig.pwd);
 }
 
 void restore() {
-  preferences.begin(NVS_WIFI_NAMESPACE, false);
+  preferences.begin(NVS_SYS_NAMESPACE, false);
   preferences.clear();
   preferences.end();
-  preferences.begin(NVS_DEVICE_NAMESPACE, false);
+  preferences.begin(NVS_NET_NAMESPACE, false);
   preferences.clear();
   preferences.end();
   preferences.begin(NVS_UART_NAMESPACE, false);
@@ -919,7 +895,7 @@ void restore() {
 }
 
 void sendCWJAPReport() {
-  MySerial.printf("+CWJAP:\"%s\",\"%s\"\r\n", systemConfig.ssid, systemConfig.pwd);
+  MySerial.printf("+CWJAP:\"%s\",\"%s\"\r\n", sysConfig.ssid, sysConfig.pwd);
 }
 
 void SendScanWiFiReport() {
@@ -1025,10 +1001,10 @@ void DoWiFiConnect(const char* ssid, const char* pwd) {
     return;
   }
 
-  strncpy(systemConfig.ssid, ssid, sizeof(systemConfig.ssid) - 1);
-  systemConfig.ssid[sizeof(systemConfig.ssid) - 1] = '\0';
-  strncpy(systemConfig.pwd, pwd, sizeof(systemConfig.pwd) - 1);
-  systemConfig.pwd[sizeof(systemConfig.pwd) - 1] = '\0';
+  strncpy(sysConfig.ssid, ssid, sizeof(sysConfig.ssid) - 1);
+  sysConfig.ssid[sizeof(sysConfig.ssid) - 1] = '\0';
+  strncpy(sysConfig.pwd, pwd, sizeof(sysConfig.pwd) - 1);
+  sysConfig.pwd[sizeof(sysConfig.pwd) - 1] = '\0';
 
   // 设置设备信息
   configStation();
@@ -1039,9 +1015,9 @@ void DoWiFiConnect(const char* ssid, const char* pwd) {
   MySerial.println("OK");
 
   Serial.print("connect ssid: ");
-  Serial.print(systemConfig.ssid);
+  Serial.print(sysConfig.ssid);
   Serial.print(" pwd: ");
-  Serial.println(systemConfig.pwd);
+  Serial.println(sysConfig.pwd);
 }
 
 
@@ -1057,24 +1033,27 @@ bool parseVersionCommand(char* cmd) {
   if (comma != NULL) return false;//最后一个参数
   switch (type) {
     case 0:
-      systemConfig.screen_version = atoi(token);
+      sysConfig.screen_version = atoi(token);
       break;
     case 1:
-      systemConfig.system_version = atoi(token);
+      sysConfig.system_version = atoi(token);
       break;
     case 2:
-      systemConfig.network_version = atoi(token);
+      sysConfig.network_version = atoi(token);
       break;
     default:
       return false;
       break;
   }
-
+  
+  // 打印解析结果
+  Serial.printf("%s:%d,%d,%d,%d\r\n", __func__, type, sysConfig.screen_version, sysConfig.system_version, sysConfig.network_version);
+  
   return true;
 }
 
 void sendVersionReport() {
-  MySerial.printf("+VERSION:%d,%d,%d\r\n", systemConfig.screen_version, systemConfig.system_version, systemConfig.network_version);
+  MySerial.printf("+VERSION:%d,%d,%d\r\n", sysConfig.screen_version, sysConfig.system_version, sysConfig.network_version);
 }
 
 void processCommand(char* cmd) {
@@ -1098,7 +1077,6 @@ void processCommand(char* cmd) {
     char pwd[65];
     
     if (parseWiFiCommand(cmd, ssid, pwd)) {
-      Serial.printf("%s,%s\r\n", ssid, pwd);
       DoWiFiConnect(ssid, pwd);
     } else {
       // 连接WiFi错误
@@ -1113,7 +1091,6 @@ void processCommand(char* cmd) {
     int duration = 0;
     
     if (parseBLECommand(cmd, &mode, &duration,&filter_type,filter_param)) {
-      Serial.printf("%d,%d,%d,%s\r\n", mode, duration, filter_type, filter_param);
       DoBLEScan(duration);
     } else {
       // BLE扫描错误
@@ -1123,7 +1100,6 @@ void processCommand(char* cmd) {
     //保存BLE列表
     int count = 0;
     if (parseBleListCommand(cmd, &count)) {
-      Serial.printf("%d\r\n", count);
       bleCount = count;
       saveBleListConfig();
       sendBleListReport(count);
@@ -1143,7 +1119,6 @@ void processCommand(char* cmd) {
     int addr = 0;
 
     if (parseUartConfigCommand(cmd, &baud, &dataBits, &stopBits, &parity, &addr)) {
-      Serial.printf("%d,%d,%d,%d,%d\r\n", baud, dataBits, stopBits, parity, addr);
       saveUartConfig(baud, dataBits, stopBits, parity, addr);
       uartConfig.baud = baud;
       uartConfig.dataBits = dataBits;
@@ -1172,7 +1147,6 @@ void processCommand(char* cmd) {
     char password[16];
     char prefix[32];
     if (parseMQTTCommand(cmd, ip, &port, username, password, prefix)) {
-      Serial.printf("%s,%d,%s,%s,%s\r\n", ip, port, username, password, prefix);
       saveMQTTConfig(ip, port, username, password, prefix);
       sendMQTTConfigReport(ip, port, username, password, prefix);
       // 重新连接MQTT服务器
@@ -1185,22 +1159,21 @@ void processCommand(char* cmd) {
     // 获取MQTT参数
     sendMQTTConfigReport(mqttConfig.ip, mqttConfig.port, mqttConfig.username, mqttConfig.password, mqttConfig.prefix);
   } else if (strncmp(cmd, AT_CMD_DEVICE_DEF, strlen(AT_CMD_DEVICE_DEF)) == 0) {
-    // 设备配置
+    // 网络配置
     char local_ip[16];
     char gateway_ip[16];
     char subnet_mask[16];
     char dns_ip[16];
-    if (parseDeviceConfigCommand(cmd, local_ip, gateway_ip, subnet_mask, dns_ip)) {
-      Serial.printf("%s,%s,%s,%s\r\n", local_ip, gateway_ip, subnet_mask, dns_ip);
-      doSaveDeviceConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
+    if (parseNetConfigCommand(cmd, local_ip, gateway_ip, subnet_mask, dns_ip)) {
+      doSaveNetConfig(local_ip, gateway_ip, subnet_mask, dns_ip);
     } else {
-      // 设备配置错误
+      // 网络配置错误
       MySerial.println(F("ERROR"));
     }
 
    } else if (strcmp(cmd, AT_CMD_DEVICE_DEF_GET) == 0) {
     // 获取设备参数
-    sendDeviceConfigReport(deviceConfig.local_ip, deviceConfig.gateway_ip, deviceConfig.subnet_mask, deviceConfig.dns_ip);
+    sendNetConfigReport(netConfig.local_ip, netConfig.gateway_ip, netConfig.subnet_mask, netConfig.dns_ip);
   } else if (strncmp(cmd, AT_CMD_VERSION, strlen(AT_CMD_VERSION)) == 0) {
     // 设置版本
     if (parseVersionCommand(cmd)) {
@@ -1443,7 +1416,7 @@ void sendCWStateReport() {
                   WiFi.localIP().toString().c_str(),
                   WiFi.gatewayIP().toString().c_str(),
                   WiFi.subnetMask().toString().c_str(),
-                  deviceConfig.mac,
+                  netConfig.mac,
                   WiFi.dnsIP().toString().c_str()
                 );
   MySerial.flush();
@@ -1536,10 +1509,10 @@ void setupEntry() {
   Serial.println(ESP.getChipModel());
   MySerial.println("ready");
 
-  // 加载设备配置
-  loadDeviceConfig();
-  // 加载WiFi配置
-  loadSystemConfig(systemConfig.ssid, systemConfig.pwd);
+  // 加载网络配置
+  loadNetConfig();
+  // 加载系统配置
+  loadSysConfig(sysConfig.ssid, sysConfig.pwd);
   // 加载UART配置
   int baud = 0;
   int dataBits = 0;
@@ -1574,12 +1547,12 @@ void setupEntry() {
   deviceStatus.wifi_check_count = 0;
 
   // 创建AP模式
-  WiFi.AP.create(deviceConfig.ap_ssid, deviceConfig.ap_pwd);
+  WiFi.AP.create(netConfig.ap_ssid, netConfig.ap_pwd);
   // 启动AP模式
   WiFi.AP.begin();
 
   // 初始化BLE设备
-  BLEDevice::init(deviceConfig.ap_ssid);
+  BLEDevice::init(netConfig.ap_ssid);
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(&bleScanCallback);
   pBLEScan->setActiveScan(true);

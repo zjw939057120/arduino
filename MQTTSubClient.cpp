@@ -31,7 +31,7 @@ void MQTTSubClientConnect() {
 
 void messageReceived(String &topic, String &payload) {
   // 打印收到的消息
-  Serial.println("topic: " + topic + ",payload: " + payload);
+  // Serial.println("topic: " + topic + ",payload: " + payload);
 
   // Note: Do not use the client in the callback to publish, subscribe or
   // unsubscribe as it may cause deadlocks when other things arrive while
@@ -41,9 +41,9 @@ void messageReceived(String &topic, String &payload) {
 
 void MQTTSubClientStart() {
   // 配置MQTT客户端参数
-  strcpy(mqttConfig.clientId, deviceConfig.ap_ssid);
+  strcpy(mqttConfig.clientId, netConfig.ap_ssid);
   // 构建MQTT主题名称
-  sprintf(mqttConfig_topic, "%s/%s", mqttConfig.prefix, deviceConfig.ap_ssid);
+  sprintf(mqttConfig_topic, "%s/%s", mqttConfig.prefix, netConfig.ap_ssid);
 
   delay(5000);// 等待5秒，确保WiFi连接稳定
   // Note: Local domain names (e.g. "Computer.local" on OSX) are not supported
@@ -75,7 +75,7 @@ void MQTTSubClientHandler() {
 
 void MQTTSubClientReConnect() {
   // 构建MQTT主题名称
-  sprintf(mqttConfig_topic, "%s/%s", mqttConfig.prefix, deviceConfig.ap_ssid);
+  sprintf(mqttConfig_topic, "%s/%s", mqttConfig.prefix, netConfig.ap_ssid);
   mqttClient.begin(mqttConfig.ip, mqttConfig.port, net);
   mqttClient.disconnect();
 }
