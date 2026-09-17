@@ -75,23 +75,17 @@ struct BLESensorData {
 };
 // 传感器数据结构体
 struct SensorData {
-  // 红外二氧化碳传感器CM1106S
-  uint16_t CO2; // CO2
-  // 甲醛传感器SC11-CH2O
-  uint16_t CH2O; // CH2O
-  // 空气质量传感器MS-VOC-V4
-  uint16_t TVOC; // TVOC
-  // 激光粉尘传感器PM2012SE
-  uint16_t PM25;  // PM2.5 GRIMM
-  uint16_t PM100; // PM10 GRIMM
-  // 温度传感器
-  uint16_t TEMP;
-  // 湿度传感器
-  uint16_t RH;
-  // 激光粉尘传感器PM2012SE
-  uint16_t PM10;  // PM1.0 GRIMM
-  // 传感器类型
-  uint8_t TYPE;
+  uint16_t CO2; // 红外二氧化碳传感器CO2
+  uint16_t CH2O; // 甲醛传感器CH2O
+  uint16_t TVOC; // 空气质量传感器TVOC
+  uint16_t PM25;  // 激光粉尘传感器PM2.5 GRIMM
+  uint16_t PM100; // 激光粉尘传感器PM10 GRIMM
+  uint16_t TEMP;  // 温度传感器温度值
+  uint16_t RH;    // 湿度传感器湿度值
+  uint16_t PM10;  // 激光粉尘传感器PM1.0 GRIMM
+  uint8_t TYPE;  // 传感器类型
+  uint16_t wifi_status; // wifi状态位
+  uint16_t wifi_rssi;   // wifi信号强度
 };
 
 extern TaskHandles taskHandles;

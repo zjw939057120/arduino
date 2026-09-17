@@ -4,11 +4,15 @@
 
 NetworkServer modbusServer;
 
+//所以寄存器数量
+static uint8_t all_registers_count = 34;
+
 // 寄存器地址映射: 按MQTT发布顺序
 // 0:CO2, 1:CH2O, 2:TVOC, 3:PM25, 4:PM100, 5:TEMP, 6:RH, 7:PM10, 8:TYPE
 // 9~28: bleSensorData[0~9].temp, bleSensorData[0~9].hum
 uint16_t getModbusRegister(uint16_t addr) {
   switch (addr) {
+    // 传感器数据
     case 0: return sensorData.CO2;
     case 1: return sensorData.CH2O;
     case 2: return sensorData.TVOC;
@@ -18,16 +22,33 @@ uint16_t getModbusRegister(uint16_t addr) {
     case 6: return sensorData.RH;
     case 7: return sensorData.PM10;
     case 8: return sensorData.TYPE;
-    default:
-      if (addr >= 9 && addr <= 28) {
-        uint16_t idx = addr - 9;
-        if (idx % 2 == 0) {
-          return bleSensorData[idx / 2].temp;
-        } else {
-          return bleSensorData[idx / 2].hum;
-        }
-      }
-      return 0;
+    // BLE传感器数据
+    case 9: return bleSensorData[0].temp;
+    case 10: return bleSensorData[0].hum;
+    case 11: return bleSensorData[1].temp;
+    case 12: return bleSensorData[1].hum;
+    case 13: return bleSensorData[2].temp;
+    case 14: return bleSensorData[2].hum;
+    case 15: return bleSensorData[3].temp;
+    case 16: return bleSensorData[3].hum;
+    case 17: return bleSensorData[4].temp;
+    case 18: return bleSensorData[4].hum;
+    case 19: return bleSensorData[5].temp;
+    case 20: return bleSensorData[5].hum;
+    case 21: return bleSensorData[6].temp;
+    case 22: return bleSensorData[6].hum;
+    case 23: return bleSensorData[7].temp;
+    case 24: return bleSensorData[7].hum;
+    case 25: return bleSensorData[8].temp;
+    case 26: return bleSensorData[8].hum;
+    case 27: return bleSensorData[9].temp;
+    case 28: return bleSensorData[9].hum;
+    case 29: return sensorData.wifi_status;
+    case 30: return sensorData.wifi_rssi;
+    case 31: return sysConfig.screen_version;
+    case 32: return sysConfig.system_version;
+    case 33: return sysConfig.network_version;
+    default: return 0;
   }
 }
 
@@ -86,6 +107,10 @@ void ModbusServerHandler() {
             if (pduLen < 5) break;
             uint16_t startAddr = (pdu[1] << 8) | pdu[2];// 起始地址
             uint16_t quantity = (pdu[3] << 8) | pdu[4];// 读取寄存器数量
+            // 检查地址是否超出范围
+            if (startAddr >= all_registers_count) break;
+            // 检查数量是否超出范围
+            if (startAddr + quantity > all_registers_count) break;
 
             // 构建响应
             response[0] = functionCode;
